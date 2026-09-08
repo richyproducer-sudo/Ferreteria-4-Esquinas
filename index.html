@@ -158,6 +158,7 @@
   }
   .auth-modal input:focus{ outline:none; border-color:var(--navy-bright); }
   .auth-google{ margin-bottom:1rem; }
+  .hint-warn{ font-size:0.76rem; color:var(--warn); text-align:center; margin:0.5rem 0 0; line-height:1.4; }
   .auth-google > div:first-child{ display:flex; justify-content:center; }
   .auth-divider{ display:flex; align-items:center; gap:0.8rem; margin:1rem 0; color:var(--ink-muted); font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; }
   .auth-divider::before, .auth-divider::after{ content:""; flex:1; height:1px; background:var(--line); }
@@ -1007,6 +1008,8 @@
     var loadingState = React.useState(false);
     var loading = loadingState[0], setLoading = loadingState[1];
     var googleBtnRef = React.useRef(null);
+    var googleIssueState = React.useState('');
+    var googleIssue = googleIssueState[0], setGoogleIssue = googleIssueState[1];
 
     function logout(){
       try { localStorage.removeItem(AUTH_KEY); } catch(e){}
@@ -1033,8 +1036,15 @@
 
     React.useEffect(function(){
       if (!open || !window.API_BASE || !window.GOOGLE_CLIENT_ID) return;
+      setGoogleIssue('');
       var cancelled = false;
       var attempts = 0;
+      function checkRendered(){
+        if (cancelled) return;
+        if (!googleBtnRef.current || googleBtnRef.current.childElementCount === 0) {
+          setGoogleIssue('No se pudo cargar el botón de Google (revisa que el sitio esté en los "Orígenes de JavaScript autorizados" de tu credencial en Google Cloud, o mira la consola del navegador para más detalle).');
+        }
+      }
       function tryRender(){
         if (cancelled) return;
         if (window.google && window.google.accounts && window.google.accounts.id && googleBtnRef.current) {
@@ -1042,11 +1052,16 @@
             window.google.accounts.id.initialize({ client_id: window.GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
             googleBtnRef.current.innerHTML = '';
             window.google.accounts.id.renderButton(googleBtnRef.current, { theme: 'filled_black', size: 'large', width: 280, locale: 'es', text: mode === 'register' ? 'signup_with' : 'signin_with' });
-          } catch(e) { /* si Google falla, el login por correo sigue funcionando */ }
+            setTimeout(checkRendered, 1200);
+          } catch(e) {
+            console.error('Google Sign-In error:', e);
+            setGoogleIssue('No se pudo inicializar el botón de Google: ' + e.message);
+          }
           return;
         }
         attempts++;
-        if (attempts < 10) setTimeout(tryRender, 300);
+        if (attempts < 10) { setTimeout(tryRender, 300); return; }
+        setGoogleIssue('El script de Google no cargó a tiempo. El inicio de sesión por correo sigue funcionando normalmente.');
       }
       tryRender();
       return function(){ cancelled = true; };
@@ -1089,6 +1104,7 @@
           e('h3', null, mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'),
           window.GOOGLE_CLIENT_ID && e('div', { className: 'auth-google' },
             e('div', { ref: googleBtnRef }),
+            googleIssue && e('p', { className: 'hint-warn' }, googleIssue),
             e('div', { className: 'auth-divider' }, e('span', null, 'o'))
           ),
           e('form', { onSubmit: submit },
