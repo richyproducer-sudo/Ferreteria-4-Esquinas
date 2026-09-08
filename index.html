@@ -191,9 +191,8 @@
   @media (prefers-reduced-motion: reduce){ .marquee-track{ animation:none; } }
 
   /* ---------------- reveal ---------------- */
-  .reveal{ opacity:0; transform:translateY(26px); transition:opacity 0.8s ease, transform 0.8s ease; }
-  .reveal.in{ opacity:1; transform:translateY(0); }
-  @media (prefers-reduced-motion: reduce){ .reveal{ opacity:1!important; transform:none!important; transition:none!important; } }
+  /* Visible by default so content never depends on JS/CDN to be readable; GSAP (if it loads) applies its own hidden->visible tween via inline styles when it initializes. */
+  .reveal.in{ opacity:1; transform:none; }
 
   /* ---------------- category strip ---------------- */
   .cat-strip{ display:grid; grid-template-columns:repeat(6,1fr); gap:1rem; }
@@ -800,7 +799,8 @@
   overlay.addEventListener('click', closeDrawer);
 
   /* ============================================================ REVEALS + GSAP */
-  if (window.gsap){
+  try{
+  if (window.gsap && window.ScrollTrigger){
     gsap.registerPlugin(ScrollTrigger);
     if (!reduceMotion){
       gsap.utils.toArray('.reveal').forEach(function(el){
@@ -813,6 +813,9 @@
         .from('.hero-chips .chip', { opacity:0, y:10, duration:0.4, stagger:0.08 }, '-=0.3')
         .from('.hero-ctas .btn', { opacity:0, y:14, duration:0.5, stagger:0.1 }, '-=0.25');
     }
+  }
+  } catch(err){
+    document.querySelectorAll('.reveal').forEach(function(el){ el.style.opacity='1'; el.style.transform='none'; });
   }
 })();
 </script>
