@@ -5,14 +5,14 @@
 
   :root{
     color-scheme: dark;
-    --ground:#12151C;
-    --surface:#1A1F29;
-    --surface-raised:#232A37;
-    --surface-hi:#2C3444;
-    --line:#333C4D;
-    --ink:#F2F4F7;
-    --ink-soft:#C6CCDA;
-    --ink-muted:#828BA0;
+    --ground:#07080B;
+    --surface:#0E0F13;
+    --surface-raised:#15171D;
+    --surface-hi:#1C1F27;
+    --line:#222530;
+    --ink:#F5F6FA;
+    --ink-soft:#E1E5EE;
+    --ink-muted:#B8C0D2;
     --navy:#1B3A82;
     --navy-bright:#4C74C9;
     --navy-deep:#101F45;
@@ -21,7 +21,7 @@
     --on-accent:#F5F7FB;
     --good:#5FA8FF;
     --warn:#4C74C9;
-    --critical:#5A6B8C;
+    --critical:#1B3A82;
     --shadow:0 24px 55px -24px rgba(0,0,0,0.65);
   }
 
@@ -194,7 +194,7 @@
     background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:1.1rem;
     display:flex; flex-direction:column; gap:0.8rem; transition:border-color 0.25s ease, transform 0.25s ease;
   }
-  .p-card:hover{ border-color:#42506a; transform:translateY(-3px); box-shadow:0 20px 40px -24px rgba(0,0,0,0.6); }
+  .p-card:hover{ border-color:var(--navy-bright); transform:translateY(-3px); box-shadow:0 20px 40px -24px rgba(0,0,0,0.6); }
   .p-art{
     height:118px; border-radius:8px; background:linear-gradient(180deg, var(--surface-raised), var(--surface));
     border:1px solid var(--line); display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden;
