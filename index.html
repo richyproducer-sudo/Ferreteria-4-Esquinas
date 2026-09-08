@@ -168,6 +168,10 @@
   .recaptcha-note a{ color:var(--ink-muted); text-decoration:underline; }
   .grecaptcha-badge{ visibility:hidden; }
   .auth-error{ color:#FF9B9E; font-size:0.85rem; margin-top:0.4rem; }
+  .auth-info{ color:var(--good); font-size:0.85rem; margin-top:0.4rem; line-height:1.4; }
+  .auth-forgot-links{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.4rem; margin:-0.4rem 0 1rem; }
+  .auth-forgot-links button{ background:none; border:none; color:var(--ink-muted); font-size:0.78rem; cursor:pointer; padding:0; text-decoration:underline; }
+  .auth-forgot-links button:hover{ color:var(--accent-bright); }
   .auth-modal-close{ background:none; border:none; color:var(--ink-muted); font-size:1.4rem; line-height:1; float:right; cursor:pointer; }
 
   /* ---------------- hero ---------------- */
@@ -1059,6 +1063,33 @@
     var googleBtnRef = React.useRef(null);
     var googleIssueState = React.useState('');
     var googleIssue = googleIssueState[0], setGoogleIssue = googleIssueState[1];
+    var infoState = React.useState('');
+    var infoMsg = infoState[0], setInfoMsg = infoState[1];
+    var resetTokenState = React.useState('');
+    var resetToken = resetTokenState[0], setResetToken = resetTokenState[1];
+    var newPassState = React.useState('');
+    var newPassword = newPassState[0], setNewPassword = newPassState[1];
+    var newPass2State = React.useState('');
+    var newPassword2 = newPass2State[0], setNewPassword2 = newPass2State[1];
+
+    // Si el enlace del correo de recuperacion trae ?reset=TOKEN, abre el modal
+    // directo en la pantalla de "nueva contraseña".
+    React.useEffect(function(){
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var token = params.get('reset');
+        if (token) {
+          setResetToken(token);
+          setMode('reset');
+          setOpen(true);
+          params.delete('reset');
+          var rest = params.toString();
+          var newUrl = window.location.pathname + (rest ? '?' + rest : '');
+          window.history.replaceState({}, '', newUrl);
+        }
+      } catch(e) {}
+    }, []);
+
     function logout(){
       try { localStorage.removeItem(AUTH_KEY); } catch(e){}
       setAuth(null);
@@ -1137,6 +1168,39 @@
         .finally(function(){ setLoading(false); });
     }
 
+    function submitForgotPassword(ev){
+      ev.preventDefault();
+      setLoading(true); setErr(''); setInfoMsg('');
+      window.getRecaptchaToken('forgot_password').then(function(recaptchaToken){
+        return fetch(window.API_BASE + '/api/auth/forgot-password', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, recaptcha_token: recaptchaToken })
+        });
+      })
+        .then(function(res){ return res.json().then(function(data){ if (!res.ok || data.ok === false) throw new Error(data.error || 'No se pudo procesar la solicitud.'); return data; }); })
+        .then(function(data){ setInfoMsg(data.message || 'Si ese correo tiene una cuenta, te enviamos un enlace.'); })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setLoading(false); });
+    }
+
+    function submitResetPassword(ev){
+      ev.preventDefault();
+      if (newPassword.length < 8) { setErr('La contraseña debe tener al menos 8 caracteres.'); return; }
+      if (newPassword !== newPassword2) { setErr('Las contraseñas no coinciden.'); return; }
+      setLoading(true); setErr(''); setInfoMsg('');
+      fetch(window.API_BASE + '/api/auth/reset-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, password: newPassword })
+      })
+        .then(function(res){ return res.json().then(function(data){ if (!res.ok || data.ok === false) throw new Error(data.error || 'No se pudo restablecer la contraseña.'); return data; }); })
+        .then(function(){
+          setInfoMsg('Tu contraseña quedó actualizada. Ya puedes iniciar sesión.');
+          setMode('login'); setPassword(''); setNewPassword(''); setNewPassword2(''); setResetToken('');
+        })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setLoading(false); });
+    }
+
     var userIcon = e('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 },
       e('circle', { cx: 12, cy: 8, r: 4 }), e('path', { d: 'M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7' }));
 
@@ -1146,16 +1210,25 @@
         e('span', { className: 'auth-label' }, 'Hola, ' + auth.user.name.split(' ')[0] + ' · '), 'Salir');
     }
 
+    var titles = {
+      login: 'Iniciar sesión', register: 'Crear cuenta', forgot: 'Recuperar contraseña',
+      reset: 'Nueva contraseña', 'forgot-email': '¿Olvidaste tu correo?'
+    };
+
+    function switchMode(next){ setMode(next); setErr(''); setInfoMsg(''); }
+
     var modalNode = open && e('div', { className: 'auth-overlay', onClick: function(ev){ if (ev.target === ev.currentTarget) setOpen(false); } },
         e('div', { className: 'auth-modal' },
           e('button', { className: 'auth-modal-close', onClick: function(){ setOpen(false); } }, '×'),
-          e('h3', null, mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'),
-          window.GOOGLE_CLIENT_ID && e('div', { className: 'auth-google' },
+          e('h3', null, titles[mode]),
+
+          (mode === 'login' || mode === 'register') && window.GOOGLE_CLIENT_ID && e('div', { className: 'auth-google' },
             e('div', { ref: googleBtnRef }),
             googleIssue && e('p', { className: 'hint-warn' }, googleIssue),
             e('div', { className: 'auth-divider' }, e('span', null, 'o'))
           ),
-          e('form', { onSubmit: submit },
+
+          (mode === 'login' || mode === 'register') && e('form', { onSubmit: submit },
             mode === 'register' && e('div', { className: 'field' },
               e('label', null, 'Nombre'),
               e('input', { type: 'text', required: true, value: name, onChange: function(ev){ setName(ev.target.value); } })),
@@ -1165,14 +1238,51 @@
             e('div', { className: 'field' },
               e('label', null, 'Contraseña'),
               e('input', { type: 'password', required: true, minLength: 8, value: password, onChange: function(ev){ setPassword(ev.target.value); } })),
+            mode === 'login' && e('div', { className: 'auth-forgot-links' },
+              e('button', { type: 'button', onClick: function(){ switchMode('forgot'); } }, '¿Olvidaste tu contraseña?'),
+              e('button', { type: 'button', onClick: function(){ switchMode('forgot-email'); } }, '¿Olvidaste tu correo?')
+            ),
             err && e('div', { className: 'auth-error' }, err),
             e('button', { type: 'submit', className: 'btn btn-primary', style: { width: '100%', marginTop: '0.4rem' }, disabled: loading },
               loading ? 'Un momento…' : (mode === 'login' ? 'Entrar' : 'Crear cuenta'))),
-          e('div', { className: 'auth-switch' },
+
+          mode === 'forgot' && e('form', { onSubmit: submitForgotPassword },
+            e('p', { className: 'hint' }, 'Ingresa el correo de tu cuenta y te enviamos un enlace para crear una contraseña nueva.'),
+            e('div', { className: 'field' },
+              e('label', null, 'Correo'),
+              e('input', { type: 'email', required: true, value: email, onChange: function(ev){ setEmail(ev.target.value); } })),
+            infoMsg && e('div', { className: 'auth-info' }, infoMsg),
+            err && e('div', { className: 'auth-error' }, err),
+            e('button', { type: 'submit', className: 'btn btn-primary', style: { width: '100%', marginTop: '0.4rem' }, disabled: loading },
+              loading ? 'Enviando…' : 'Enviar enlace de recuperación')),
+
+          mode === 'reset' && e('form', { onSubmit: submitResetPassword },
+            e('div', { className: 'field' },
+              e('label', null, 'Nueva contraseña'),
+              e('input', { type: 'password', required: true, minLength: 8, value: newPassword, onChange: function(ev){ setNewPassword(ev.target.value); } })),
+            e('div', { className: 'field' },
+              e('label', null, 'Confirma la contraseña'),
+              e('input', { type: 'password', required: true, minLength: 8, value: newPassword2, onChange: function(ev){ setNewPassword2(ev.target.value); } })),
+            err && e('div', { className: 'auth-error' }, err),
+            e('button', { type: 'submit', className: 'btn btn-primary', style: { width: '100%', marginTop: '0.4rem' }, disabled: loading },
+              loading ? 'Guardando…' : 'Cambiar contraseña')),
+
+          mode === 'forgot-email' && e('div', null,
+            e('p', { className: 'hint' }, 'Por seguridad no podemos recuperar automáticamente un correo olvidado. Escríbenos por WhatsApp con tu nombre y te ayudamos a verificar tu cuenta.'),
+            e('a', {
+              className: 'btn btn-wa', style: { width: '100%', marginTop: '0.6rem', justifyContent: 'center' },
+              href: 'https://wa.me/' + window.WA_NUMBER + '?text=' + encodeURIComponent('Hola, olvidé el correo de mi cuenta en la página de Ferretería 4 Esquinas. Mi nombre es: '),
+              target: '_blank', rel: 'noopener'
+            }, 'Escribir por WhatsApp')),
+
+          (mode === 'login' || mode === 'register') && e('div', { className: 'auth-switch' },
             mode === 'login'
-              ? e(React.Fragment, null, '¿No tienes cuenta? ', e('button', { onClick: function(){ setMode('register'); setErr(''); } }, 'Regístrate'))
-              : e(React.Fragment, null, '¿Ya tienes cuenta? ', e('button', { onClick: function(){ setMode('login'); setErr(''); } }, 'Inicia sesión'))),
-          window.RECAPTCHA_SITE_KEY && e('p', { className: 'recaptcha-note' },
+              ? e(React.Fragment, null, '¿No tienes cuenta? ', e('button', { onClick: function(){ switchMode('register'); } }, 'Regístrate'))
+              : e(React.Fragment, null, '¿Ya tienes cuenta? ', e('button', { onClick: function(){ switchMode('login'); } }, 'Inicia sesión'))),
+          (mode === 'forgot' || mode === 'forgot-email' || mode === 'reset') && e('div', { className: 'auth-switch' },
+            e('button', { onClick: function(){ switchMode('login'); } }, '← Volver a iniciar sesión')),
+
+          (mode === 'login' || mode === 'register' || mode === 'forgot') && window.RECAPTCHA_SITE_KEY && e('p', { className: 'recaptcha-note' },
             'Este sitio está protegido por reCAPTCHA y se aplican la ',
             e('a', { href: 'https://policies.google.com/privacy', target: '_blank', rel: 'noopener' }, 'Política de privacidad'),
             ' y los ',
