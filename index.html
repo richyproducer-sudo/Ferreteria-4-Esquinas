@@ -1094,11 +1094,7 @@
         e('span', { className: 'auth-label' }, 'Hola, ' + auth.user.name.split(' ')[0] + ' · '), 'Salir');
     }
 
-    return e(React.Fragment, null,
-      e('button', { className: 'auth-btn', onClick: function(){ setOpen(true); } },
-        userIcon,
-        e('span', { className: 'auth-label' }, 'Mi cuenta')),
-      open && e('div', { className: 'auth-overlay', onClick: function(ev){ if (ev.target === ev.currentTarget) setOpen(false); } },
+    var modalNode = open && e('div', { className: 'auth-overlay', onClick: function(ev){ if (ev.target === ev.currentTarget) setOpen(false); } },
         e('div', { className: 'auth-modal' },
           e('button', { className: 'auth-modal-close', onClick: function(){ setOpen(false); } }, '×'),
           e('h3', null, mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'),
@@ -1123,7 +1119,13 @@
           e('div', { className: 'auth-switch' },
             mode === 'login'
               ? e(React.Fragment, null, '¿No tienes cuenta? ', e('button', { onClick: function(){ setMode('register'); setErr(''); } }, 'Regístrate'))
-              : e(React.Fragment, null, '¿Ya tienes cuenta? ', e('button', { onClick: function(){ setMode('login'); setErr(''); } }, 'Inicia sesión'))))));
+              : e(React.Fragment, null, '¿Ya tienes cuenta? ', e('button', { onClick: function(){ setMode('login'); setErr(''); } }, 'Inicia sesión')))));
+
+    return e(React.Fragment, null,
+      e('button', { className: 'auth-btn', onClick: function(){ setOpen(true); } },
+        userIcon,
+        e('span', { className: 'auth-label' }, 'Mi cuenta')),
+      modalNode && ReactDOM.createPortal(modalNode, document.body));
   }
 
   var authRootEl = document.getElementById('authRoot');
