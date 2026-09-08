@@ -37,6 +37,18 @@
 
   .topbar{ display:flex; align-items:center; justify-content:space-between; padding:1rem 1.6rem; border-bottom:1px solid var(--line); background:var(--surface); }
   .topbar h1{ font-size:1.3rem; }
+  .badge-role{ font-size:0.68rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--navy-bright); border:1px solid var(--navy-bright); border-radius:999px; padding:0.15rem 0.6rem; margin-left:0.6rem; vertical-align:middle; }
+  .stat-cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1rem; margin-bottom:1.8rem; }
+  .stat-card{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:1.2rem; cursor:pointer; transition:border-color .2s ease; }
+  .stat-card:hover{ border-color:var(--navy-bright); }
+  .stat-card .n{ font-family:'IBM Plex Mono', monospace; font-size:1.8rem; font-weight:700; color:var(--accent-bright); display:block; }
+  .stat-card .l{ font-size:0.78rem; color:var(--ink-muted); text-transform:uppercase; letter-spacing:0.04em; }
+  .search-row{ display:flex; gap:0.7rem; margin-bottom:1.2rem; flex-wrap:wrap; }
+  .search-row input, .search-row select{
+    background:var(--surface-hi); border:1px solid var(--line); border-radius:8px; color:var(--ink);
+    padding:0.55rem 0.8rem; font-size:0.88rem;
+  }
+  .search-row input{ flex:1; min-width:180px; }
   .btn{ border:1px solid var(--line); background:var(--surface-raised); color:var(--ink); padding:0.55rem 1.1rem; border-radius:8px; font-weight:600; font-size:0.9rem; transition:border-color .2s ease, background .2s ease; }
   .btn:hover{ border-color:var(--navy-bright); }
   .btn-primary{ background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
@@ -138,7 +150,7 @@
       setLoading(true); setErr('');
       apiFetch('/api/auth/login', null, { method:'POST', body: JSON.stringify({ email:email, password:password }) })
         .then(function(data){
-          if (data.user.role !== 'admin') { throw new Error('Esta cuenta no tiene permisos de administrador.'); }
+          if (data.user.role !== 'admin' && data.user.role !== 'superadmin') { throw new Error('Esta cuenta no tiene permisos de administrador.'); }
           props.onLogin(data.token, data.user);
         })
         .catch(function(e){ setErr(e.message); })
@@ -295,6 +307,8 @@
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
     var _editing = React.useState(null); var editing = _editing[0], setEditing = _editing[1];
     var _showForm = React.useState(false); var showForm = _showForm[0], setShowForm = _showForm[1];
+    var _search = React.useState(''); var search = _search[0], setSearch = _search[1];
+    var _catFilter = React.useState('todas'); var catFilter = _catFilter[0], setCatFilter = _catFilter[1];
 
     function load(){
       setLoading(true);
@@ -312,21 +326,34 @@
         .catch(function(e){ setErr(e.message); });
     }
 
+    var filtered = products.filter(function(p){
+      var matchesSearch = !search || p.name.toLowerCase().indexOf(search.toLowerCase()) !== -1;
+      var matchesCat = catFilter === 'todas' || p.category === catFilter;
+      return matchesSearch && matchesCat;
+    });
+
     return e('div', null,
       e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.2rem' } },
         e('h2', { style:{ fontSize:'1.15rem' } }, 'Catálogo'),
         e('button', { className:'btn btn-primary', onClick:function(){ setEditing(null); setShowForm(true); } }, '+ Nuevo producto')
       ),
+      e('div', { className:'search-row' },
+        e('input', { placeholder:'Buscar por nombre…', value:search, onChange:function(ev){ setSearch(ev.target.value); } }),
+        e('select', { value:catFilter, onChange:function(ev){ setCatFilter(ev.target.value); } },
+          e('option', { value:'todas' }, 'Todas las categorías'),
+          CATEGORY_OPTIONS.map(function(c){ return e('option', { key:c, value:c }, c); })
+        )
+      ),
       err ? e('div', { className:'error-msg' }, err) : null,
       loading ? e('p', { className:'hint' }, 'Cargando…') :
-      products.length === 0 ? e('div', { className:'empty' }, 'Aún no hay productos.') :
+      filtered.length === 0 ? e('div', { className:'empty' }, products.length === 0 ? 'Aún no hay productos.' : 'Ningún producto coincide con la búsqueda.') :
       e('div', { className:'table-wrap' },
         e('table', null,
           e('thead', null, e('tr', null,
             e('th', null, 'Foto'), e('th', null, 'Producto'), e('th', null, 'Categoría'), e('th', null, 'Precio'),
             e('th', null, 'Estado'), e('th', null, '')
           )),
-          e('tbody', null, products.map(function(p){
+          e('tbody', null, filtered.map(function(p){
             return e('tr', { key:p.id },
               e('td', null, p.image_url
                 ? e('img', { src:p.image_url, alt:'', style:{ width:'40px', height:'40px', borderRadius:'6px', objectFit:'cover', display:'block' } })
@@ -355,6 +382,8 @@
     var _quotes = React.useState([]); var quotes = _quotes[0], setQuotes = _quotes[1];
     var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+    var _search = React.useState(''); var search = _search[0], setSearch = _search[1];
+    var _statusFilter = React.useState('todas'); var statusFilter = _statusFilter[0], setStatusFilter = _statusFilter[1];
 
     function load(){
       setLoading(true);
@@ -371,12 +400,27 @@
         .catch(function(e){ setErr(e.message); });
     }
 
+    var filtered = quotes.filter(function(q){
+      var matchesSearch = !search || q.customer_name.toLowerCase().indexOf(search.toLowerCase()) !== -1 || q.customer_phone.indexOf(search) !== -1;
+      var matchesStatus = statusFilter === 'todas' || q.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+
     return e('div', null,
       e('h2', { style:{ fontSize:'1.15rem', marginBottom:'1.2rem' } }, 'Cotizaciones'),
+      e('div', { className:'search-row' },
+        e('input', { placeholder:'Buscar por nombre o teléfono…', value:search, onChange:function(ev){ setSearch(ev.target.value); } }),
+        e('select', { value:statusFilter, onChange:function(ev){ setStatusFilter(ev.target.value); } },
+          e('option', { value:'todas' }, 'Todos los estados'),
+          e('option', { value:'nueva' }, 'Nueva'),
+          e('option', { value:'confirmada' }, 'Confirmada'),
+          e('option', { value:'cancelada' }, 'Cancelada')
+        )
+      ),
       err ? e('div', { className:'error-msg' }, err) : null,
       loading ? e('p', { className:'hint' }, 'Cargando…') :
-      quotes.length === 0 ? e('div', { className:'empty' }, 'Todavía no han llegado cotizaciones.') :
-      quotes.map(function(q){
+      filtered.length === 0 ? e('div', { className:'empty' }, quotes.length === 0 ? 'Todavía no han llegado cotizaciones.' : 'Ninguna cotización coincide con la búsqueda.') :
+      filtered.map(function(q){
         return e('div', { key:q.id, className:'quote-card' },
           e('div', { className:'quote-head' },
             e('div', null,
@@ -402,36 +446,215 @@
     );
   }
 
-  function AdminApp(){
-    var _token = React.useState(function(){ try { return localStorage.getItem(TOKEN_KEY) || ''; } catch(e){ return ''; } });
-    var token = _token[0], setToken = _token[1];
-    var _user = React.useState(null); var user = _user[0], setUser = _user[1];
-    var _tab = React.useState('products'); var tab = _tab[0], setTab = _tab[1];
+  function DashboardTab(props){
+    var _stats = React.useState(null); var stats = _stats[0], setStats = _stats[1];
+    var _err = React.useState(''); var err = _err[0], setErr = _err[1];
 
-    function onLogin(newToken, newUser){
-      try { localStorage.setItem(TOKEN_KEY, newToken); } catch(e){}
-      setToken(newToken); setUser(newUser);
-    }
-    function logout(){
-      try { localStorage.removeItem(TOKEN_KEY); } catch(e){}
-      setToken(''); setUser(null);
+    React.useEffect(function(){
+      var calls = [
+        apiFetch('/api/products', props.token).catch(function(){ return { products: [] }; }),
+        apiFetch('/api/quotes', props.token).catch(function(){ return { quotes: [] }; })
+      ];
+      if (props.isSuperAdmin) calls.push(apiFetch('/api/staff', props.token).catch(function(){ return { staff: [] }; }));
+
+      Promise.all(calls).then(function(results){
+        var products = results[0].products || [];
+        var quotes = results[1].quotes || [];
+        var staff = results[2] ? (results[2].staff || []) : null;
+        var nuevas = quotes.filter(function(q){ return q.status === 'nueva'; }).length;
+        var now = new Date();
+        var esteMes = quotes.filter(function(q){
+          var d = new Date(q.created_at);
+          return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        }).length;
+        var pocoStock = products.filter(function(p){ return p.stock_status === 'low' || p.stock_status === 'out'; }).length;
+        setStats({ totalProducts: products.length, totalQuotes: quotes.length, nuevas: nuevas, esteMes: esteMes, pocoStock: pocoStock, staffCount: staff ? staff.length : null });
+      }).catch(function(e){ setErr(e.message); });
+    }, []);
+
+    if (err) return e('div', { className:'error-msg' }, err);
+    if (!stats) return e('p', { className:'hint' }, 'Cargando…');
+
+    var cards = [
+      { n: stats.totalProducts, l: 'Productos activos', go: 'products' },
+      { n: stats.nuevas, l: 'Cotizaciones nuevas', go: 'quotes' },
+      { n: stats.esteMes, l: 'Cotizaciones este mes', go: 'quotes' },
+      { n: stats.pocoStock, l: 'Con poco stock / agotados', go: 'products' }
+    ];
+    if (stats.staffCount !== null) cards.push({ n: stats.staffCount, l: 'Miembros del equipo', go: 'staff' });
+
+    return e('div', null,
+      e('h2', { style:{ fontSize:'1.15rem', marginBottom:'1.2rem' } }, 'Resumen'),
+      e('div', { className:'stat-cards' }, cards.map(function(c, i){
+        return e('div', { key:i, className:'stat-card', onClick:function(){ props.onNavigate(c.go); } },
+          e('span', { className:'n' }, c.n),
+          e('span', { className:'l' }, c.l));
+      }))
+    );
+  }
+
+  function StaffForm(props){
+    var _f = React.useState({ name:'', email:'', password:'', role:'admin' }); var form = _f[0], setForm = _f[1];
+    var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+    var _saving = React.useState(false); var saving = _saving[0], setSaving = _saving[1];
+
+    function set(key){ return function(ev){ setForm(Object.assign({}, form, { [key]: ev.target.value })); }; }
+
+    function submit(ev){
+      ev.preventDefault();
+      if (!form.name.trim() || !form.email.trim() || form.password.length < 8) {
+        setErr('Nombre, correo y una contraseña de al menos 8 caracteres son obligatorios.');
+        return;
+      }
+      setSaving(true); setErr('');
+      apiFetch('/api/staff', props.token, { method:'POST', body: JSON.stringify(form) })
+        .then(function(){ props.onSaved(); })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setSaving(false); });
     }
 
-    if (!token) {
-      return e(LoginScreen, { onLogin: onLogin });
+    return e('div', { className:'modal-overlay', onClick:function(ev){ if (ev.target === ev.currentTarget) props.onClose(); } },
+      e('div', { className:'modal', style:{ maxWidth:'420px' } },
+        e('div', { className:'modal-head' },
+          e('h2', { style:{ fontSize:'1.1rem' } }, 'Nuevo miembro del equipo'),
+          e('button', { className:'modal-close', onClick:props.onClose }, '×')
+        ),
+        e('form', { onSubmit: submit },
+          e('div', { className:'field' }, e('label', null, 'Nombre'), e('input', { value:form.name, onChange:set('name'), required:true })),
+          e('div', { className:'field' }, e('label', null, 'Correo'), e('input', { type:'email', value:form.email, onChange:set('email'), required:true })),
+          e('div', { className:'field' }, e('label', null, 'Contraseña'), e('input', { type:'password', value:form.password, onChange:set('password'), required:true, minLength:8 })),
+          e('div', { className:'field' }, e('label', null, 'Rol'),
+            e('select', { value:form.role, onChange:set('role') },
+              e('option', { value:'admin' }, 'Administrador'),
+              e('option', { value:'superadmin' }, 'Super administrador')
+            )
+          ),
+          err ? e('div', { className:'error-msg' }, err) : null,
+          e('div', { className:'form-actions' },
+            e('button', { type:'button', className:'btn', onClick:props.onClose }, 'Cancelar'),
+            e('button', { type:'submit', className:'btn btn-primary', disabled:saving }, saving ? 'Creando…' : 'Crear cuenta')
+          )
+        )
+      )
+    );
+  }
+
+  function StaffTab(props){
+    var _staff = React.useState([]); var staff = _staff[0], setStaff = _staff[1];
+    var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
+    var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+    var _showForm = React.useState(false); var showForm = _showForm[0], setShowForm = _showForm[1];
+
+    function load(){
+      setLoading(true);
+      apiFetch('/api/staff', props.token)
+        .then(function(data){ setStaff(data.staff); setErr(''); })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setLoading(false); });
+    }
+    React.useEffect(load, []);
+
+    function toggleActive(member){
+      apiFetch('/api/staff/' + member.id + '/active', props.token, { method:'PUT', body: JSON.stringify({ active: !member.active }) })
+        .then(load)
+        .catch(function(e){ setErr(e.message); });
+    }
+
+    function changeRole(member, role){
+      if (role === member.role) return;
+      apiFetch('/api/staff/' + member.id + '/role', props.token, { method:'PUT', body: JSON.stringify({ role: role }) })
+        .then(load)
+        .catch(function(e){ setErr(e.message); });
     }
 
     return e('div', null,
+      e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.2rem' } },
+        e('h2', { style:{ fontSize:'1.15rem' } }, 'Equipo (administradores)'),
+        e('button', { className:'btn btn-primary', onClick:function(){ setShowForm(true); } }, '+ Nuevo miembro')
+      ),
+      err ? e('div', { className:'error-msg' }, err) : null,
+      loading ? e('p', { className:'hint' }, 'Cargando…') :
+      staff.length === 0 ? e('div', { className:'empty' }, 'Aún no hay cuentas de administrador.') :
+      e('div', { className:'table-wrap' },
+        e('table', null,
+          e('thead', null, e('tr', null,
+            e('th', null, 'Nombre'), e('th', null, 'Correo'), e('th', null, 'Rol'),
+            e('th', null, 'Estado'), e('th', null, '')
+          )),
+          e('tbody', null, staff.map(function(m){
+            return e('tr', { key:m.id },
+              e('td', null, m.name),
+              e('td', { className:'mono' }, m.email),
+              e('td', null, e('span', { className:'badge ' + (m.role === 'superadmin' ? 'badge-low' : 'badge-in') }, m.role === 'superadmin' ? 'Super admin' : 'Admin')),
+              e('td', null, e('span', { className:'badge ' + (m.active ? 'badge-in' : 'badge-out') }, m.active ? 'Activo' : 'Inactivo')),
+              e('td', null, e('div', { className:'row-actions' },
+                e('select', {
+                  value:m.role, onChange:function(ev){ changeRole(m, ev.target.value); }, disabled:m.id === props.currentUserId
+                },
+                  e('option', { value:'admin' }, 'Administrador'),
+                  e('option', { value:'superadmin' }, 'Super administrador')
+                ),
+                e('button', {
+                  className:'btn' + (m.active ? ' btn-danger' : ''),
+                  onClick:function(){ toggleActive(m); }, disabled:m.id === props.currentUserId
+                }, m.active ? 'Desactivar' : 'Activar')
+              ))
+            );
+          }))
+        )
+      ),
+      showForm ? e(StaffForm, { token:props.token, onClose:function(){ setShowForm(false); }, onSaved:function(){ setShowForm(false); load(); } }) : null
+    );
+  }
+
+  function readSavedAuth(){
+    try {
+      var raw = localStorage.getItem(TOKEN_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (parsed && parsed.token && parsed.user) return parsed;
+      return null;
+    } catch(e){ return null; }
+  }
+
+  function AdminApp(){
+    var _auth = React.useState(readSavedAuth());
+    var auth = _auth[0], setAuth = _auth[1];
+    var _tab = React.useState('dashboard'); var tab = _tab[0], setTab = _tab[1];
+
+    function onLogin(newToken, newUser){
+      var record = { token: newToken, user: newUser };
+      try { localStorage.setItem(TOKEN_KEY, JSON.stringify(record)); } catch(e){}
+      setAuth(record);
+    }
+    function logout(){
+      try { localStorage.removeItem(TOKEN_KEY); } catch(e){}
+      setAuth(null);
+    }
+
+    if (!auth) {
+      return e(LoginScreen, { onLogin: onLogin });
+    }
+
+    var token = auth.token, user = auth.user;
+    var isSuperAdmin = user && user.role === 'superadmin';
+
+    return e('div', null,
       e('div', { className:'topbar' },
-        e('h1', null, 'Ferretería 4 Esquinas · Admin'),
+        e('h1', null, 'Ferretería 4 Esquinas · Admin', isSuperAdmin ? e('span', { className:'badge-role' }, 'Super Admin') : null),
         e('button', { className:'btn', onClick:logout }, 'Cerrar sesión')
       ),
       e('div', { className:'wrap' },
         e('div', { className:'tabs' },
+          e('button', { className:'tab-btn' + (tab === 'dashboard' ? ' active' : ''), onClick:function(){ setTab('dashboard'); } }, 'Resumen'),
           e('button', { className:'tab-btn' + (tab === 'products' ? ' active' : ''), onClick:function(){ setTab('products'); } }, 'Catálogo'),
-          e('button', { className:'tab-btn' + (tab === 'quotes' ? ' active' : ''), onClick:function(){ setTab('quotes'); } }, 'Cotizaciones')
+          e('button', { className:'tab-btn' + (tab === 'quotes' ? ' active' : ''), onClick:function(){ setTab('quotes'); } }, 'Cotizaciones'),
+          isSuperAdmin && e('button', { className:'tab-btn' + (tab === 'staff' ? ' active' : ''), onClick:function(){ setTab('staff'); } }, 'Equipo')
         ),
-        tab === 'products' ? e(ProductsTab, { token:token }) : e(QuotesTab, { token:token })
+        tab === 'dashboard' ? e(DashboardTab, { token:token, isSuperAdmin:isSuperAdmin, onNavigate:setTab }) :
+        tab === 'products' ? e(ProductsTab, { token:token }) :
+        tab === 'quotes' ? e(QuotesTab, { token:token }) :
+        (tab === 'staff' && isSuperAdmin) ? e(StaffTab, { token:token, currentUserId: user.id }) : null
       )
     );
   }
