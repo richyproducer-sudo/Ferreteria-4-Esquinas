@@ -147,8 +147,8 @@
   .auth-btn:hover{ border-color:var(--accent); }
   .auth-btn svg{ width:16px; height:16px; flex:none; color:var(--accent-bright); }
   @media (max-width:420px){ .auth-btn span.auth-label{ display:none; } .auth-btn{ padding:0 0.7rem; } }
-  .auth-overlay{ position:fixed; inset:0; background:rgba(5,6,9,0.72); z-index:95; display:flex; align-items:center; justify-content:center; padding:1.2rem; }
-  .auth-modal{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:1.8rem; width:100%; max-width:380px; }
+  .auth-overlay{ position:fixed; inset:0; background:rgba(5,6,9,0.72); z-index:95; display:flex; align-items:flex-start; justify-content:center; padding:1.2rem; padding-top:clamp(1.2rem,8vh,4rem); overflow-y:auto; }
+  .auth-modal{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:1.8rem; width:100%; max-width:380px; max-height:calc(100vh - 2 * clamp(1.2rem,8vh,4rem)); overflow-y:auto; }
   .auth-modal h3{ font-size:1.2rem; margin-bottom:1.2rem; }
   .auth-modal .field{ margin-bottom:1rem; }
   .auth-modal label{ display:block; font-size:0.78rem; color:var(--ink-muted); margin-bottom:0.35rem; text-transform:uppercase; letter-spacing:0.04em; }
