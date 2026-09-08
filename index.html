@@ -309,6 +309,17 @@
   .contact-row .lbl{ font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-muted); }
   .contact-row .val{ font-size:0.95rem; color:var(--ink); }
 
+  /* ---------------- faq ---------------- */
+  .faq-list{ max-width:820px; margin:0 auto; display:flex; flex-direction:column; gap:0.9rem; }
+  .faq-item{ background:var(--surface); border:1px solid var(--line); border-radius:14px; overflow:hidden; transition:border-color 0.3s ease, box-shadow 0.3s ease; }
+  .faq-item:hover{ border-color:var(--navy-bright); box-shadow:0 20px 40px -24px rgba(47,111,238,0.3); }
+  .faq-q{ width:100%; display:flex; align-items:center; justify-content:space-between; gap:1rem; background:none; border:none; cursor:pointer; padding:1.2rem 1.4rem; text-align:left; font:inherit; font-weight:600; font-size:1rem; color:var(--ink); }
+  .faq-icon{ width:20px; height:20px; flex:none; color:var(--accent-bright); transition:transform 0.3s ease; }
+  .faq-item.open .faq-icon{ transform:rotate(180deg); }
+  .faq-a{ max-height:0; overflow:hidden; transition:max-height 0.35s ease; }
+  .faq-a p{ color:var(--ink-soft); font-size:0.94rem; line-height:1.6; margin:0; padding:0 1.4rem 1.2rem; }
+  .faq-item.open .faq-a{ max-height:320px; }
+
   /* ---------------- cart drawer ---------------- */
   .overlay{ position:fixed; inset:0; background:rgba(10,12,16,0.6); backdrop-filter:blur(2px); z-index:90; opacity:0; pointer-events:none; transition:opacity 0.3s ease; }
   .overlay.show{ opacity:1; pointer-events:auto; }
@@ -390,6 +401,7 @@
       <a href="#catalogo">Catálogo</a>
       <a href="#nosotros">Nosotros</a>
       <a href="#ubicacion">Ubicación</a>
+      <a href="#faq">Preguntas</a>
       <a href="#contacto">Contacto</a>
     </nav>
     <div class="nav-actions">
@@ -524,6 +536,59 @@
   </div>
 </section>
 
+<!-- ============================================================ PREGUNTAS FRECUENTES -->
+<section class="pad" id="faq">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div><p class="eyebrow">Ayuda</p><h2>Preguntas frecuentes</h2><p>Lo que más nos preguntan nuestros clientes en Bahía Solano.</p></div>
+    </div>
+    <div class="faq-list">
+      <div class="faq-item reveal">
+        <button class="faq-q" type="button" aria-expanded="false">
+          <span>¿Cuál es el horario de atención?</span>
+          <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="faq-a"><p>Atendemos de lunes a viernes de 8:00am a 6:00pm y los sábados de 8:00am a 2:00pm. Los domingos permanecemos cerrados.</p></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" type="button" aria-expanded="false">
+          <span>¿Cómo hago una cotización o pedido?</span>
+          <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="faq-a"><p>Agrega los productos que necesitas al carrito desde el catálogo y genera tu cotización: puedes descargarla o enviarla directo por WhatsApp al 310 634 4419 para que un asesor confirme precio final y disponibilidad.</p></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" type="button" aria-expanded="false">
+          <span>¿Hacen entregas a domicilio en Bahía Solano?</span>
+          <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="faq-a"><p>Sí, coordinamos entregas dentro del casco urbano. Escríbenos por WhatsApp con tu pedido y dirección para confirmar tiempos y costo del envío.</p></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" type="button" aria-expanded="false">
+          <span>¿Qué métodos de pago aceptan?</span>
+          <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="faq-a"><p>Aceptamos efectivo, transferencia y pago con tarjeta en el punto de venta. Para compras grandes o de contratistas, coméntanos por WhatsApp para acordar la forma de pago.</p></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" type="button" aria-expanded="false">
+          <span>¿Los precios del catálogo son definitivos?</span>
+          <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="faq-a"><p>Son precios de referencia en pesos colombianos (COP). El valor final y la disponibilidad se confirman en tienda o por WhatsApp antes de facturar.</p></div>
+      </div>
+      <div class="faq-item reveal">
+        <button class="faq-q" type="button" aria-expanded="false">
+          <span>¿Los productos tienen garantía?</span>
+          <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="faq-a"><p>Sí, herramientas y equipos cuentan con la garantía del fabricante. Conserva tu factura y comunícate con nosotros si presentas algún inconveniente.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ============================================================ FOOTER -->
 <footer>
   <div class="wrap">
@@ -537,6 +602,7 @@
         <a href="#catalogo">Catálogo</a>
         <a href="#nosotros">Nosotros</a>
         <a href="#ubicacion">Horario</a>
+        <a href="#faq">Preguntas frecuentes</a>
         <a href="#contacto">Contacto</a>
       </div>
       <div class="foot-col">
@@ -797,6 +863,16 @@
   window.closeCartDrawer = closeDrawer;
   document.getElementById('btnCart').addEventListener('click', openDrawer);
   overlay.addEventListener('click', closeDrawer);
+
+  /* ============================================================ FAQ ACCORDION */
+  document.querySelectorAll('.faq-item').forEach(function(item){
+    var q = item.querySelector('.faq-q');
+    q.addEventListener('click', function(){
+      var opening = !item.classList.contains('open');
+      item.classList.toggle('open', opening);
+      q.setAttribute('aria-expanded', opening ? 'true' : 'false');
+    });
+  });
 
   /* ============================================================ REVEALS + GSAP */
   try{
