@@ -260,6 +260,8 @@
   .p-card:hover .p-art::before{ transform:translateX(130%); }
   .p-art svg{ width:56%; height:56%; color:var(--ink-soft); transition:transform 0.4s ease; }
   .p-card:hover .p-art svg{ transform:scale(1.08); color:var(--accent-bright); }
+  .p-art img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transition:transform 0.4s ease; }
+  .p-card:hover .p-art img{ transform:scale(1.06); }
   .p-stock{
     position:absolute; top:0.5rem; right:0.5rem; font-size:0.62rem; font-weight:700; text-transform:uppercase;
     letter-spacing:0.04em; padding:0.2rem 0.5rem; border-radius:4px; font-family:'IBM Plex Mono',monospace;
@@ -840,8 +842,9 @@
       var card = document.createElement('div');
       card.className = 'p-card reveal in';
       var catName = (CATEGORIES.find(function(c){ return c.id === p.cat; }) || {}).name || '';
+      var artContent = p.image_url ? '<img src="' + p.image_url + '" alt="" loading="lazy">' : ICONS[p.icon];
       card.innerHTML =
-        '<div class="p-art">' + ICONS[p.icon] +
+        '<div class="p-art">' + artContent +
           '<span class="p-stock ' + p.stock + '">' + (p.stock === 'in' ? 'Disponible' : 'Pocas unid.') + '</span>' +
         '</div>' +
         '<span class="p-cat">' + catName + '</span>' +

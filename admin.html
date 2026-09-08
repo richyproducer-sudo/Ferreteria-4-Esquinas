@@ -173,17 +173,61 @@
     return { name:'', category:'herramientas', unit:'unidad', price:'', description:'', image_url:'', icon:'herramienta', stock_status:'in' };
   }
 
+  // Reduce cualquier foto a un tamaño razonable (max 1000px de lado, JPEG ~82% calidad)
+  // antes de guardarla como data URI en base64, para que la base de datos no se llene
+  // de fotos pesadas sin comprimir.
+  function resizeImageFile(file){
+    return new Promise(function(resolve, reject){
+      if (!file.type || file.type.indexOf('image/') !== 0) { reject(new Error('El archivo debe ser una imagen.')); return; }
+      var reader = new FileReader();
+      reader.onerror = function(){ reject(new Error('No se pudo leer el archivo.')); };
+      reader.onload = function(){
+        var img = new Image();
+        img.onerror = function(){ reject(new Error('No se pudo leer la imagen.')); };
+        img.onload = function(){
+          var maxDim = 1000;
+          var w = img.width, h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w >= h) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+            else { w = Math.round(w * (maxDim / h)); h = maxDim; }
+          }
+          var canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   function ProductForm(props){
     var _f = React.useState(props.product ? Object.assign({}, props.product) : emptyForm());
     var form = _f[0], setForm = _f[1];
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
     var _saving = React.useState(false); var saving = _saving[0], setSaving = _saving[1];
+    var _imgMode = React.useState(props.product && props.product.image_url && props.product.image_url.indexOf('data:') === 0 ? 'upload' : 'url');
+    var imgMode = _imgMode[0], setImgMode = _imgMode[1];
+    var _imgBusy = React.useState(false); var imgBusy = _imgBusy[0], setImgBusy = _imgBusy[1];
+    var _imgErr = React.useState(''); var imgErr = _imgErr[0], setImgErr = _imgErr[1];
 
     function set(key){ return function(ev){ setForm(Object.assign({}, form, { [key]: ev.target.value })); }; }
+
+    function onFileChange(ev){
+      var file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      setImgBusy(true); setImgErr('');
+      resizeImageFile(file)
+        .then(function(dataUri){ setForm(function(prev){ return Object.assign({}, prev, { image_url: dataUri }); }); })
+        .catch(function(e){ setImgErr(e.message); })
+        .finally(function(){ setImgBusy(false); });
+    }
 
     function submit(ev){
       ev.preventDefault();
       if (!form.name.trim() || !form.price) { setErr('Nombre y precio son obligatorios.'); return; }
+      if (imgBusy) { setErr('Espera a que termine de procesarse la imagen.'); return; }
       setSaving(true); setErr('');
       var payload = Object.assign({}, form, { price: Number(form.price) });
       var isEdit = Boolean(props.product && props.product.id);
@@ -210,7 +254,19 @@
           e('div', { className:'field' }, e('label', null, 'Unidad (ej. unidad, galón, par)'), e('input', { value:form.unit, onChange:set('unit') })),
           e('div', { className:'field' }, e('label', null, 'Precio (COP)'), e('input', { type:'number', min:'0', value:form.price, onChange:set('price'), required:true })),
           e('div', { className:'field' }, e('label', null, 'Descripción'), e('textarea', { rows:3, value:form.description, onChange:set('description') })),
-          e('div', { className:'field' }, e('label', null, 'URL de la foto (sube la imagen a cualquier hosting de imágenes y pega aquí el enlace)'), e('input', { value:form.image_url, onChange:set('image_url') })),
+          e('div', { className:'field' },
+            e('label', null, 'Foto del producto'),
+            e('div', { style:{ display:'flex', gap:'0.5rem', marginBottom:'0.6rem' } },
+              e('button', { type:'button', className:'btn' + (imgMode === 'url' ? ' btn-primary' : ''), onClick:function(){ setImgMode('url'); setImgErr(''); } }, 'Por URL'),
+              e('button', { type:'button', className:'btn' + (imgMode === 'upload' ? ' btn-primary' : ''), onClick:function(){ setImgMode('upload'); setImgErr(''); } }, 'Subir imagen')
+            ),
+            imgMode === 'url'
+              ? e('input', { value:form.image_url, onChange:set('image_url'), placeholder:'https://...' })
+              : e('input', { type:'file', accept:'image/*', onChange:onFileChange }),
+            imgBusy ? e('p', { className:'hint' }, 'Procesando imagen…') : null,
+            imgErr ? e('div', { className:'error-msg' }, imgErr) : null,
+            form.image_url ? e('img', { src:form.image_url, alt:'Vista previa', style:{ maxWidth:'140px', maxHeight:'140px', borderRadius:'8px', marginTop:'0.7rem', display:'block', objectFit:'cover', border:'1px solid var(--line)' } }) : null
+          ),
           e('div', { className:'field' }, e('label', null, 'Ícono'),
             e('select', { value:form.icon, onChange:set('icon') },
               ICON_OPTIONS.map(function(i){ return e('option', { key:i, value:i }, i); })
@@ -226,7 +282,7 @@
           err ? e('div', { className:'error-msg' }, err) : null,
           e('div', { className:'form-actions' },
             e('button', { type:'button', className:'btn', onClick:props.onClose }, 'Cancelar'),
-            e('button', { type:'submit', className:'btn btn-primary', disabled:saving }, saving ? 'Guardando…' : 'Guardar')
+            e('button', { type:'submit', className:'btn btn-primary', disabled:saving || imgBusy }, saving ? 'Guardando…' : 'Guardar')
           )
         )
       )
@@ -267,11 +323,14 @@
       e('div', { className:'table-wrap' },
         e('table', null,
           e('thead', null, e('tr', null,
-            e('th', null, 'Producto'), e('th', null, 'Categoría'), e('th', null, 'Precio'),
+            e('th', null, 'Foto'), e('th', null, 'Producto'), e('th', null, 'Categoría'), e('th', null, 'Precio'),
             e('th', null, 'Estado'), e('th', null, '')
           )),
           e('tbody', null, products.map(function(p){
             return e('tr', { key:p.id },
+              e('td', null, p.image_url
+                ? e('img', { src:p.image_url, alt:'', style:{ width:'40px', height:'40px', borderRadius:'6px', objectFit:'cover', display:'block' } })
+                : e('span', { className:'hint' }, '—')),
               e('td', null, p.name),
               e('td', null, p.category),
               e('td', { className:'mono' }, money(p.price)),
