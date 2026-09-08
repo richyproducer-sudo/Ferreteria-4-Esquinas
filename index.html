@@ -19,9 +19,9 @@
     --accent:#2F6FEE;
     --accent-bright:#5FA8FF;
     --on-accent:#F5F7FB;
-    --good:#34A853;
-    --warn:#F0B429;
-    --critical:#E5484D;
+    --good:#5FA8FF;
+    --warn:#4C74C9;
+    --critical:#5A6B8C;
     --shadow:0 24px 55px -24px rgba(0,0,0,0.65);
   }
 
@@ -66,8 +66,8 @@
   .btn-primary:hover{ background:var(--accent-bright); transform:translateY(-2px); }
   .btn-ghost{ background:transparent; color:var(--ink); border-color:var(--line); }
   .btn-ghost:hover{ border-color:var(--ink-muted); transform:translateY(-2px); }
-  .btn-wa{ background:#25D366; color:#08260F; }
-  .btn-wa:hover{ background:#3EE07A; transform:translateY(-2px); }
+  .btn-wa{ background:var(--navy); color:#fff; }
+  .btn-wa:hover{ background:var(--navy-bright); transform:translateY(-2px); }
   .btn:focus-visible, button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible{
     outline:2px solid var(--accent-bright); outline-offset:2px;
   }
@@ -93,7 +93,7 @@
   .status-dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-muted); flex:none; }
   .status-chip.open .status-dot{ background:var(--good); animation:dotPulse 2s ease-in-out infinite; }
   .status-chip.closed .status-dot{ background:var(--critical); }
-  @keyframes dotPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(52,168,83,0.5); } 50%{ box-shadow:0 0 0 5px rgba(52,168,83,0); } }
+  @keyframes dotPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(95,168,255,0.5); } 50%{ box-shadow:0 0 0 5px rgba(95,168,255,0); } }
   @media (max-width:700px){ .status-chip span.status-text{ display:none; } }
   .cart-btn{
     position:relative; width:42px; height:42px; border-radius:8px; background:var(--surface-raised);
@@ -211,8 +211,8 @@
     position:absolute; top:0.5rem; right:0.5rem; font-size:0.62rem; font-weight:700; text-transform:uppercase;
     letter-spacing:0.04em; padding:0.2rem 0.5rem; border-radius:4px; font-family:'IBM Plex Mono',monospace;
   }
-  .p-stock.in{ background:rgba(52,168,83,0.18); color:#7FE0A0; }
-  .p-stock.low{ background:rgba(240,180,41,0.18); color:#F5CE6C; }
+  .p-stock.in{ background:rgba(95,168,255,0.18); color:#B9D6FF; }
+  .p-stock.low{ background:rgba(76,116,201,0.22); color:#C3D2F5; }
   .p-cat{ font-family:'IBM Plex Mono',monospace; font-size:0.64rem; text-transform:uppercase; letter-spacing:0.07em; color:var(--accent-bright); }
   .p-name{ font-size:1.05rem; font-weight:700; color:var(--ink); line-height:1.25; }
   .p-price{ font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:1.15rem; color:var(--ink); }
@@ -304,11 +304,11 @@
   /* ---------------- whatsapp float ---------------- */
   .wa-float{
     position:fixed; bottom:1.4rem; right:1.4rem; z-index:70; width:56px; height:56px; border-radius:50%;
-    background:#25D366; display:flex; align-items:center; justify-content:center; box-shadow:0 16px 34px -12px rgba(37,211,102,0.6);
-    text-decoration:none; animation:waPulse 2.8s ease-in-out infinite;
+    background:var(--navy); display:flex; align-items:center; justify-content:center; box-shadow:0 16px 34px -12px rgba(27,58,130,0.7);
+    text-decoration:none; animation:waPulse 2.8s ease-in-out infinite; border:1px solid var(--navy-bright);
   }
-  .wa-float svg{ width:28px; height:28px; color:#08260F; }
-  @keyframes waPulse{ 0%,100%{ box-shadow:0 16px 34px -12px rgba(37,211,102,0.6); } 50%{ box-shadow:0 20px 44px -10px rgba(37,211,102,0.85); } }
+  .wa-float svg{ width:28px; height:28px; color:#fff; }
+  @keyframes waPulse{ 0%,100%{ box-shadow:0 16px 34px -12px rgba(27,58,130,0.7); } 50%{ box-shadow:0 20px 44px -10px rgba(76,116,201,0.85); } }
 
   footer{ padding:clamp(2.4rem,5vw,3.2rem) 0 2rem; }
   .foot-grid{ display:grid; grid-template-columns:1.2fr 0.8fr 0.8fr 0.9fr; gap:2rem; margin-bottom:2rem; }
