@@ -484,6 +484,10 @@
           e('div', { className:'quote-foot' },
             e('span', { className:'mono', style:{ fontWeight:700 } }, 'Total: ' + money(q.subtotal)),
             e('span', { className:'hint' }, q.alegra_synced ? '✓ Sincronizada con Alegra' : 'No sincronizada con Alegra'),
+            q.payment_method === 'wompi' ? e('span', { className:'hint' },
+              q.payment_status === 'pagado' ? '💳 Pagado en línea (Wompi)' :
+              q.payment_status === 'fallido' ? '💳 Pago en línea fallido' : '💳 Pago en línea pendiente'
+            ) : null,
             e('select', { className:'mono', value:q.status, onChange:function(ev){ changeStatus(q, ev.target.value); }, style:{ background:'var(--surface-hi)', color:'var(--ink)', border:'1px solid var(--line)', borderRadius:'6px', padding:'0.3rem 0.5rem' } },
               e('option', { value:'nueva' }, 'Nueva'),
               e('option', { value:'confirmada' }, 'Confirmada'),

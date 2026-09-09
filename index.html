@@ -436,6 +436,7 @@
   .quote-panel input:focus{ outline:2px solid var(--accent); border-color:var(--accent); }
   .quote-actions{ display:flex; flex-direction:column; gap:0.6rem; margin-top:0.4rem; }
   .quote-note{ font-size:0.74rem; color:var(--ink-muted); line-height:1.5; }
+  .wompi-block{ display:flex; flex-direction:column; gap:0.6rem; padding-top:0.8rem; border-top:1px dashed var(--line); }
 
   /* ---------------- whatsapp float ---------------- */
   .wa-float{
@@ -1430,23 +1431,74 @@
     }, 0);
 
     var quoteSavedRef = React.useRef(false);
-    function saveQuoteToBackend(){
-      if (!window.API_BASE || quoteSavedRef.current || !ids.length) return;
+    var quoteIdRef = React.useRef(null);
+    var quoteIdPromiseRef = React.useRef(null);
+
+    // Guarda la cotizacion en el backend UNA sola vez (sin importar cuantos botones
+    // se toquen despues) y siempre devuelve una promesa con el quote_id, para que
+    // el pago con Wompi (que si necesita el id) y el envio por WhatsApp/descarga
+    // (que no lo necesitan) puedan compartir el mismo guardado.
+    function ensureQuoteSaved(){
+      if (quoteIdPromiseRef.current) return quoteIdPromiseRef.current;
+      if (!window.API_BASE || !ids.length) return Promise.resolve(null);
       var items = ids.map(function(id){
         var p = window.PRODUCTS_BY_ID[id];
         return (p && p.dbId) ? { product_id: p.dbId, qty: cart[id] } : null;
       }).filter(Boolean);
-      if (!items.length) return; // catalogo local (sin backend) — nada que guardar en la base de datos
+      if (!items.length) return Promise.resolve(null); // catalogo local (sin backend) — nada que guardar
       quoteSavedRef.current = true;
       var token = window.getAuthToken ? window.getAuthToken() : null;
       var headers = { 'Content-Type': 'application/json' };
       if (token) headers.Authorization = 'Bearer ' + token;
-      window.getRecaptchaToken('quote').then(function(recaptchaToken){
-        fetch(window.API_BASE + '/api/quotes', {
+      quoteIdPromiseRef.current = window.getRecaptchaToken('quote').then(function(recaptchaToken){
+        return fetch(window.API_BASE + '/api/quotes', {
           method: 'POST', headers: headers,
           body: JSON.stringify({ name: name.trim() || 'Cliente web', phone: phone.trim(), items: items, recaptcha_token: recaptchaToken })
-        }).catch(function(){ /* best-effort: WhatsApp/descarga ya funcionan igual sin esto */ });
-      });
+        }).then(function(res){ return res.json(); });
+      }).then(function(data){
+        var id = (data && data.ok && data.quote_id) ? data.quote_id : null;
+        quoteIdRef.current = id;
+        return id;
+      }).catch(function(){ return null; });
+      return quoteIdPromiseRef.current;
+    }
+
+    function saveQuoteToBackend(){ ensureQuoteSaved(); }
+
+    var wompiStatusState = React.useState('idle'); // idle | loading | ready | error
+    var wompiStatus = wompiStatusState[0], setWompiStatus = wompiStatusState[1];
+    var wompiContainerRef = React.useRef(null);
+
+    function renderWompiButton(checkout){
+      var container = wompiContainerRef.current;
+      if (!container) return;
+      container.innerHTML = '';
+      var form = document.createElement('form');
+      var script = document.createElement('script');
+      script.src = 'https://checkout.wompi.co/widget.js';
+      script.setAttribute('data-render', 'button');
+      script.setAttribute('data-public-key', checkout.publicKey);
+      script.setAttribute('data-currency', checkout.currency);
+      script.setAttribute('data-amount-in-cents', String(checkout.amountInCents));
+      script.setAttribute('data-reference', checkout.reference);
+      script.setAttribute('data-signature:integrity', checkout.signature);
+      form.appendChild(script);
+      container.appendChild(form);
+    }
+
+    function payWithWompi(){
+      if (!ids.length || !window.API_BASE) return;
+      setWompiStatus('loading');
+      ensureQuoteSaved().then(function(quoteId){
+        if (!quoteId) { setWompiStatus('error'); return; }
+        return fetch(window.API_BASE + '/api/quotes/' + quoteId + '/wompi-checkout', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }
+        }).then(function(res){ return res.json(); }).then(function(data){
+          if (!data || !data.ok) { setWompiStatus('error'); return; }
+          renderWompiButton(data.checkout);
+          setWompiStatus('ready');
+        });
+      }).catch(function(){ setWompiStatus('error'); });
     }
 
     function sendWhatsApp(){
@@ -1513,7 +1565,14 @@
               e('path', { d: 'M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.42-1.36a9.9 9.9 0 0 0 4.62 1.14h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2m0 1.67c4.55 0 8.24 3.69 8.24 8.24 0 4.55-3.69 8.24-8.24 8.24a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.81.83-3.04-.2-.31a8.2 8.2 0 0 1-1.26-4.37c0-4.55 3.69-8.24 8.24-8.24m4.48 10.5c-.25-.12-1.47-.72-1.69-.8-.23-.08-.4-.12-.56.13-.17.24-.65.8-.8.96-.15.17-.29.19-.54.06-.25-.12-1.04-.38-1.98-1.22-.73-.65-1.23-1.46-1.37-1.7-.15-.25-.02-.38.11-.5.11-.11.25-.29.37-.44.12-.14.16-.24.25-.41.08-.16.04-.31-.02-.43-.06-.13-.56-1.35-.77-1.85-.2-.48-.41-.42-.56-.43-.14-.01-.31-.01-.48-.01-.16 0-.43.06-.66.31-.23.24-.86.85-.86 2.06 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.24 3.75.59.26 1.05.41 1.41.52.59.19 1.13.16 1.55.1.47-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.16-.48-.28' })),
             'Enviar cotización por WhatsApp'),
           e('button', { className: 'btn btn-ghost', style: { width: '100%' }, onClick: downloadQuote }, 'Descargar cotización')),
-        e('p', { className: 'quote-note' }, 'Al enviar, se abre WhatsApp con el detalle de tu pedido dirigido a Ferretería 4 Esquinas. Un asesor confirma precios, disponibilidad y forma de entrega.')));
+        e('p', { className: 'quote-note' }, 'Al enviar, se abre WhatsApp con el detalle de tu pedido dirigido a Ferretería 4 Esquinas. Un asesor confirma precios, disponibilidad y forma de entrega.'),
+        e('div', { className: 'wompi-block' },
+          e('p', { className: 'quote-note' }, '¿Prefieres pagar en línea ahora (tarjeta, PSE, Nequi)?'),
+          wompiStatus !== 'ready' && e('button', {
+            className: 'btn', style: { width: '100%' }, disabled: wompiStatus === 'loading', onClick: payWithWompi
+          }, wompiStatus === 'loading' ? 'Preparando pago…' : 'Pagar ahora en línea (Wompi)'),
+          wompiStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo iniciar el pago en línea en este momento. Puedes enviar tu cotización por WhatsApp y pagar contra entrega.'),
+          e('div', { ref: wompiContainerRef }))));
   }
 
   var root = ReactDOM.createRoot(document.getElementById('drawerRoot'));
