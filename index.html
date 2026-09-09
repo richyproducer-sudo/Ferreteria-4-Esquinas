@@ -1410,6 +1410,36 @@
     return lines.join('\n');
   }
 
+  // Comprobante para pagar en efectivo en el punto físico (o contra entrega): lleva
+  // un codigo de pedido para que el cliente lo muestre al llegar a la tienda o al
+  // repartidor. "code" ya viene formateado (F4E-000123 si hay quote_id del backend,
+  // o un codigo temporal si el sitio esta corriendo sin backend).
+  function buildInvoiceText(code, cart, name, phone){
+    var lines = [];
+    lines.push('Ferretería 4 Esquinas — Comprobante de pedido');
+    lines.push('Bahía Solano, Chocó');
+    lines.push('');
+    lines.push('Código de pedido: ' + code);
+    lines.push('Fecha: ' + new Date().toLocaleString('es-CO'));
+    lines.push('');
+    if (name) lines.push('Cliente: ' + name);
+    if (phone) lines.push('Teléfono: ' + phone);
+    if (name || phone) lines.push('');
+    var subtotal = 0;
+    Object.keys(cart).filter(function(id){ return cart[id] > 0; }).forEach(function(id){
+      var p = window.PRODUCTS_BY_ID[id];
+      if (!p) return;
+      var lineTotal = p.price * cart[id];
+      subtotal += lineTotal;
+      lines.push('• ' + p.name + ' (' + p.unit + ')  x' + cart[id] + '  —  ' + money(lineTotal));
+    });
+    lines.push('');
+    lines.push('Total a pagar: ' + money(subtotal));
+    lines.push('');
+    lines.push('Presenta este código en la tienda para pagar en efectivo y recoger tu pedido, o muéstralo al repartidor si es contra entrega.');
+    return lines.join('\n');
+  }
+
   function CartDrawerApp(){
     var state = React.useState(window.CartStore.get());
     var cart = state[0], setCart = state[1];
@@ -1464,6 +1494,29 @@
     }
 
     function saveQuoteToBackend(){ ensureQuoteSaved(); }
+
+    var cashStatusState = React.useState('idle'); // idle | loading | ready | error
+    var cashStatus = cashStatusState[0], setCashStatus = cashStatusState[1];
+    var cashCodeState = React.useState(null);
+    var cashCode = cashCodeState[0], setCashCode = cashCodeState[1];
+
+    function payInCash(){
+      if (!ids.length) return;
+      setCashStatus('loading');
+      ensureQuoteSaved().then(function(quoteId){
+        var code = quoteId ? 'F4E-' + String(quoteId).padStart(6, '0') : 'TEMP-' + String(Date.now()).slice(-8);
+        var text = buildInvoiceText(code, cart, name.trim(), phone.trim());
+        setCashCode(code);
+        setCashStatus('ready');
+        return (async function(){
+          try {
+            var downloads = await claude.use('downloads');
+            if (!downloads) return;
+            await downloads.save({ filename: 'pedido-' + code + '.txt', data: text });
+          } catch (err) { /* viewer declined o no disponible — el codigo ya se muestra en pantalla */ }
+        })();
+      }).catch(function(){ setCashStatus('error'); });
+    }
 
     var wompiStatusState = React.useState('idle'); // idle | loading | ready | error
     var wompiStatus = wompiStatusState[0], setWompiStatus = wompiStatusState[1];
@@ -1566,6 +1619,13 @@
             'Enviar cotización por WhatsApp'),
           e('button', { className: 'btn btn-ghost', style: { width: '100%' }, onClick: downloadQuote }, 'Descargar cotización')),
         e('p', { className: 'quote-note' }, 'Al enviar, se abre WhatsApp con el detalle de tu pedido dirigido a Ferretería 4 Esquinas. Un asesor confirma precios, disponibilidad y forma de entrega.'),
+        e('div', { className: 'wompi-block' },
+          e('p', { className: 'quote-note' }, '¿Prefieres pagar en efectivo al recibir o en la tienda?'),
+          e('button', {
+            className: 'btn', style: { width: '100%' }, disabled: cashStatus === 'loading', onClick: payInCash
+          }, cashStatus === 'loading' ? 'Generando código…' : 'Pagar en efectivo (generar código de pedido)'),
+          cashStatus === 'ready' && cashCode && e('p', { className: 'quote-note', style: { fontWeight: 700 } }, 'Tu código de pedido: ' + cashCode + '. Muéstralo en la tienda o al repartidor.'),
+          cashStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar el código. Intenta de nuevo o envía tu cotización por WhatsApp.')),
         e('div', { className: 'wompi-block' },
           e('p', { className: 'quote-note' }, '¿Prefieres pagar en línea ahora (tarjeta, PSE, Nequi)?'),
           wompiStatus !== 'ready' && e('button', {

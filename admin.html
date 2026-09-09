@@ -450,7 +450,10 @@
     }
 
     var filtered = quotes.filter(function(q){
-      var matchesSearch = !search || q.customer_name.toLowerCase().indexOf(search.toLowerCase()) !== -1 || q.customer_phone.indexOf(search) !== -1;
+      var code = 'F4E-' + String(q.id).padStart(6, '0');
+      var s = search.trim().toLowerCase();
+      var matchesSearch = !s || q.customer_name.toLowerCase().indexOf(s) !== -1 || q.customer_phone.indexOf(search.trim()) !== -1 ||
+        code.toLowerCase().indexOf(s) !== -1 || String(q.id) === search.trim();
       var matchesStatus = statusFilter === 'todas' || q.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
@@ -458,7 +461,7 @@
     return e('div', null,
       e('h2', { style:{ fontSize:'1.15rem', marginBottom:'1.2rem' } }, 'Cotizaciones'),
       e('div', { className:'search-row' },
-        e('input', { placeholder:'Buscar por nombre o teléfono…', value:search, onChange:function(ev){ setSearch(ev.target.value); } }),
+        e('input', { placeholder:'Buscar por nombre, teléfono o código de pedido…', value:search, onChange:function(ev){ setSearch(ev.target.value); } }),
         e('select', { value:statusFilter, onChange:function(ev){ setStatusFilter(ev.target.value); } },
           e('option', { value:'todas' }, 'Todos los estados'),
           e('option', { value:'nueva' }, 'Nueva'),
@@ -474,7 +477,8 @@
           e('div', { className:'quote-head' },
             e('div', null,
               e('span', { className:'name' }, q.customer_name), ' — ',
-              e('span', { className:'mono' }, q.customer_phone)
+              e('span', { className:'mono' }, q.customer_phone), ' — ',
+              e('span', { className:'mono' }, 'F4E-' + String(q.id).padStart(6, '0'))
             ),
             e('span', { className:'hint' }, new Date(q.created_at).toLocaleString('es-CO'))
           ),
