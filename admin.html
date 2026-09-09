@@ -548,17 +548,97 @@
     );
   }
 
+  // Tarjeta de un pedido dentro de "Verificación de pago / Cobro". Cada tarjeta
+  // maneja su propio estado de cobro en efectivo y de checkout Wompi (por eso es
+  // un componente aparte y no solo un .map — asi cada uno tiene sus propios hooks).
+  function QuoteCobroCard(props){
+    var q = props.quote;
+    var code = 'F4E-' + String(q.id).padStart(6, '0');
+    var isConfirmed = q.status === 'confirmada';
+    var isCancelled = q.status === 'cancelada';
+
+    var _cashLoading = React.useState(false); var cashLoading = _cashLoading[0], setCashLoading = _cashLoading[1];
+    var _wompiStatus = React.useState('idle'); var wompiStatus = _wompiStatus[0], setWompiStatus = _wompiStatus[1];
+    var wompiContainerRef = React.useRef(null);
+
+    function payInCash(){
+      setCashLoading(true);
+      apiFetch('/api/quotes/' + q.id + '/status', props.token, { method:'PUT', body: JSON.stringify({ status:'confirmada' }) })
+        .then(props.onChanged)
+        .catch(function(e){ props.onError(e.message); })
+        .finally(function(){ setCashLoading(false); });
+    }
+
+    function renderWompiButton(checkout){
+      var container = wompiContainerRef.current;
+      if (!container) return;
+      container.innerHTML = '';
+      var form = document.createElement('form');
+      var script = document.createElement('script');
+      script.src = 'https://checkout.wompi.co/widget.js';
+      script.setAttribute('data-render', 'button');
+      script.setAttribute('data-public-key', checkout.publicKey);
+      script.setAttribute('data-currency', checkout.currency);
+      script.setAttribute('data-amount-in-cents', String(checkout.amountInCents));
+      script.setAttribute('data-reference', checkout.reference);
+      script.setAttribute('data-signature:integrity', checkout.signature);
+      form.appendChild(script);
+      container.appendChild(form);
+    }
+
+    function payWithWompi(){
+      setWompiStatus('loading');
+      apiFetch('/api/quotes/' + q.id + '/wompi-checkout', props.token, { method:'POST' })
+        .then(function(data){ renderWompiButton(data.checkout); setWompiStatus('ready'); })
+        .catch(function(){ setWompiStatus('error'); });
+    }
+
+    return e('div', { className:'quote-card' },
+      e('div', { className:'quote-head' },
+        e('div', null,
+          e('span', { className:'name' }, q.customer_name), ' — ',
+          e('span', { className:'mono' }, q.customer_phone), ' — ',
+          e('span', { className:'mono', style:{ fontWeight:700 } }, code)
+        ),
+        e('span', { className:'hint' }, new Date(q.created_at).toLocaleString('es-CO'))
+      ),
+      e('div', { className:'quote-items' }, q.items.map(function(it){
+        return e('div', { key:it.id }, e('span', null, it.qty + '× ' + it.product_name), e('span', { className:'mono' }, money(it.unit_price * it.qty)));
+      })),
+      e('div', { className:'quote-foot' },
+        e('span', { className:'mono', style:{ fontWeight:700 } }, 'Total a cobrar: ' + money(q.subtotal)),
+        q.payment_method === 'wompi' ? e('span', { className:'hint' },
+          q.payment_status === 'pagado' ? '💳 Pagado en línea (Wompi)' :
+          q.payment_status === 'fallido' ? '💳 Pago en línea fallido' : '💳 Pago en línea pendiente'
+        ) : null,
+        isConfirmed ? e('span', { className:'hint', style:{ color:'var(--accent-bright)', fontWeight:700 } }, '✓ Cobro confirmado') :
+        isCancelled ? e('span', { className:'hint' }, 'Pedido cancelado') :
+        e('div', { style:{ display:'flex', gap:'0.6rem', flexWrap:'wrap' } },
+          e('button', {
+            className:'btn btn-primary', disabled: cashLoading,
+            onClick: payInCash
+          }, cashLoading ? 'Confirmando…' : 'Pagar en efectivo'),
+          wompiStatus !== 'ready' && e('button', {
+            className:'btn', disabled: wompiStatus === 'loading',
+            onClick: payWithWompi
+          }, wompiStatus === 'loading' ? 'Preparando…' : 'Wompi')
+        )
+      ),
+      !isConfirmed && !isCancelled && wompiStatus === 'error' ? e('p', { className:'error-msg' }, 'No se pudo iniciar el pago en línea. Intenta de nuevo.') : null,
+      !isConfirmed && !isCancelled ? e('div', { ref: wompiContainerRef, style:{ marginTop:'0.6rem' } }) : null
+    );
+  }
+
   // Verificacion de pago / cobro: pantalla enfocada para cuando un cliente llega
   // a pagar (en efectivo, o para confirmar un pago en linea) y el personal necesita
-  // ubicar su pedido rapido por codigo, telefono o nombre, ver el total y confirmar
-  // el cobro en un solo paso. Reutiliza los mismos endpoints que la pestaña de
-  // Cotizaciones (no hay un endpoint especial de "pago" en el backend).
+  // ubicar su pedido rapido por codigo, telefono o nombre, ver el total y cobrarlo
+  // en un solo paso. Reutiliza los mismos endpoints que la pestaña de Cotizaciones
+  // y el mismo checkout de Wompi que antes vivia en el carrito del cliente.
   function PaymentVerificationTab(props){
     var _query = React.useState(''); var query = _query[0], setQuery = _query[1];
     var _quotes = React.useState([]); var quotes = _quotes[0], setQuotes = _quotes[1];
     var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
-    var _confirming = React.useState(null); var confirmingId = _confirming[0], setConfirmingId = _confirming[1];
 
     function load(){
       setLoading(true);
@@ -568,14 +648,6 @@
         .finally(function(){ setLoading(false); });
     }
     React.useEffect(load, []);
-
-    function confirmPayment(q){
-      setConfirmingId(q.id);
-      apiFetch('/api/quotes/' + q.id + '/status', props.token, { method:'PUT', body: JSON.stringify({ status:'confirmada' }) })
-        .then(load)
-        .catch(function(e){ setErr(e.message); })
-        .finally(function(){ setConfirmingId(null); });
-    }
 
     var s = query.trim().toLowerCase();
     var matches = s === '' ? [] : quotes.filter(function(q){
@@ -599,35 +671,7 @@
       s === '' ? e('div', { className:'empty' }, 'Escribe un código, teléfono o nombre para buscar un pedido.') :
       matches.length === 0 ? e('div', { className:'empty' }, 'No se encontró ningún pedido que coincida.') :
       matches.map(function(q){
-        var code = 'F4E-' + String(q.id).padStart(6, '0');
-        var isConfirmed = q.status === 'confirmada';
-        var isCancelled = q.status === 'cancelada';
-        return e('div', { key:q.id, className:'quote-card' },
-          e('div', { className:'quote-head' },
-            e('div', null,
-              e('span', { className:'name' }, q.customer_name), ' — ',
-              e('span', { className:'mono' }, q.customer_phone), ' — ',
-              e('span', { className:'mono', style:{ fontWeight:700 } }, code)
-            ),
-            e('span', { className:'hint' }, new Date(q.created_at).toLocaleString('es-CO'))
-          ),
-          e('div', { className:'quote-items' }, q.items.map(function(it){
-            return e('div', { key:it.id }, e('span', null, it.qty + '× ' + it.product_name), e('span', { className:'mono' }, money(it.unit_price * it.qty)));
-          })),
-          e('div', { className:'quote-foot' },
-            e('span', { className:'mono', style:{ fontWeight:700 } }, 'Total a cobrar: ' + money(q.subtotal)),
-            q.payment_method === 'wompi' ? e('span', { className:'hint' },
-              q.payment_status === 'pagado' ? '💳 Pagado en línea (Wompi)' :
-              q.payment_status === 'fallido' ? '💳 Pago en línea fallido' : '💳 Pago en línea pendiente'
-            ) : null,
-            isConfirmed ? e('span', { className:'hint', style:{ color:'var(--accent-bright)', fontWeight:700 } }, '✓ Cobro confirmado') :
-            isCancelled ? e('span', { className:'hint' }, 'Pedido cancelado') :
-            e('button', {
-              className:'btn btn-primary', disabled: confirmingId === q.id,
-              onClick:function(){ confirmPayment(q); }
-            }, confirmingId === q.id ? 'Confirmando…' : 'Confirmar cobro recibido')
-          )
-        );
+        return e(QuoteCobroCard, { key:q.id, quote:q, token:props.token, onChanged:load, onError:setErr });
       })
     );
   }
