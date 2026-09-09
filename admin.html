@@ -886,6 +886,14 @@
         if (jobTitle === null) return;
       }
       apiFetch('/api/staff/' + member.id + '/job-title', props.token, { method:'PUT', body: JSON.stringify({ job_title: jobTitle }) })
+        .then(function(){
+          // Igual que al crear un miembro nuevo: si el rol elegido es "Dueño",
+          // se sube automaticamente el tipo de cuenta a Super administrador
+          // para que siempre pueda ver la pestaña Equipo tambien.
+          if (jobTitle === 'Dueño' && member.role !== 'superadmin') {
+            return apiFetch('/api/staff/' + member.id + '/role', props.token, { method:'PUT', body: JSON.stringify({ role:'superadmin' }) });
+          }
+        })
         .then(load)
         .catch(function(e){ setErr(e.message); });
     }
