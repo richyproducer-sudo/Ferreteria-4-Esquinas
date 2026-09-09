@@ -919,6 +919,18 @@
     return m ? parseInt(m[1], 10) : null;
   }
 
+  // QR "de finalizar entrega": une el id del pedido y el codigo de seguridad
+  // real (el que ya envia el backend por WhatsApp al despachar) para que el
+  // repartidor lo escanee del celular del cliente en vez de escribir el codigo
+  // a mano. Distinto del QR "F4E-Q-<id>" que solo identifica el pedido.
+  function buildFinishQrText(quoteId, code){
+    return 'F4E-FIN-' + quoteId + '-' + code;
+  }
+  function parseFinishQrText(text){
+    var m = String(text).match(/F4E-FIN-(\d+)-([A-Za-z0-9]+)\s*$/);
+    return m ? { quoteId: parseInt(m[1], 10), code: m[2] } : null;
+  }
+
   // Pitido corto (Web Audio API, sin archivos de sonido) para confirmar que un
   // escaneo o una entrega se registro correctamente.
   function beep(){
@@ -1057,9 +1069,48 @@
     );
   }
 
+  // El codigo de seguridad (y su QR) SOLO se le envian al cliente por WhatsApp
+  // aqui — nunca aparecen impresos en la Factura POS que maneja el repartidor,
+  // para que este no pueda verlos de antemano.
   function DeliveryCodeModal(props){
-    var waText = 'Hola ' + props.quote.customer_name + ', tu pedido en Ferretería 4 Esquinas ya va en camino. Cuando el repartidor llegue, dale este código de seguridad para confirmar la entrega: ' + props.code + '. ¡Gracias por tu compra!';
+    var qrRef = React.useRef(null);
+    var _sharing = React.useState(false); var sharing = _sharing[0], setSharing = _sharing[1];
+    var finishQrText = buildFinishQrText(props.quote.id, props.code);
+    var waText = 'Hola ' + props.quote.customer_name + ', tu pedido en Ferretería 4 Esquinas ya va en camino. Cuando el repartidor llegue, dale este código de seguridad o muéstrale el QR adjunto para confirmar la entrega: ' + props.code + '. ¡Gracias por tu compra!';
     var waUrl = 'https://wa.me/' + toWaNumber(props.quote.customer_phone) + '?text=' + encodeURIComponent(waText);
+
+    React.useEffect(function(){
+      if (qrRef.current) {
+        qrRef.current.innerHTML = '';
+        new QRCode(qrRef.current, { text: finishQrText, width: 180, height: 180 });
+      }
+    }, []);
+
+    function qrCanvas(){ return qrRef.current ? qrRef.current.querySelector('canvas') : null; }
+
+    // En celulares con Web Share API (la mayoria), comparte el QR como imagen
+    // directo a WhatsApp. Si no esta disponible (ej. computador), se descarga
+    // el QR para adjuntarlo a mano y se deja el enlace de texto como respaldo.
+    function shareQr(){
+      var canvas = qrCanvas();
+      if (!canvas || !navigator.share) { downloadQr(); return; }
+      setSharing(true);
+      canvas.toBlob(function(blob){
+        var file = new File([blob], 'codigo-entrega.png', { type: 'image/png' });
+        if (navigator.canShare && !navigator.canShare({ files: [file] })) { setSharing(false); downloadQr(); return; }
+        navigator.share({ files: [file], text: waText }).catch(function(){}).finally(function(){ setSharing(false); });
+      });
+    }
+
+    function downloadQr(){
+      var canvas = qrCanvas();
+      if (!canvas) return;
+      var a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = 'codigo-entrega-' + props.quote.id + '.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+
     return e('div', { className:'modal-overlay' },
       e('div', { className:'modal', style:{ maxWidth:'380px', textAlign:'center' } },
         e('div', { className:'modal-head' },
@@ -1068,22 +1119,28 @@
         ),
         e('p', { className:'hint' }, 'Código de seguridad para ' + props.quote.customer_name + ':'),
         e('div', { className:'delivery-code-display' }, props.code),
+        e('div', { className:'qr-box', style:{ margin:'0 auto 0.8rem' } }, e('div', { ref:qrRef })),
+        e('p', { className:'hint', style:{ marginBottom:'0.8rem' } }, 'Este código y QR solo debe verlos el cliente — no van impresos en la factura.'),
+        e('button', { className:'btn btn-wa', style:{ width:'100%' }, disabled:sharing, onClick:shareQr }, sharing ? 'Compartiendo…' : 'Enviar código + QR por WhatsApp'),
         e('a', {
-          className:'btn btn-wa', style:{ width:'100%', display:'block', textDecoration:'none' },
-          href: waUrl, target:'_blank', rel:'noopener', onClick:props.onClose
-        }, 'Enviar por WhatsApp'),
-        e('p', { className:'hint', style:{ marginTop:'0.8rem' } }, 'El cliente debe dar este código al repartidor para poder finalizar la entrega.')
+          className:'btn btn-ghost', style:{ width:'100%', display:'block', textDecoration:'none', marginTop:'0.5rem' },
+          href: waUrl, target:'_blank', rel:'noopener'
+        }, 'O solo el texto por WhatsApp'),
+        e('p', { className:'hint', style:{ marginTop:'0.8rem' } }, 'El cliente debe darle este código o QR al repartidor para poder finalizar la entrega.')
       )
     );
   }
 
+  // "prefillCode": llega cuando el repartidor escaneo el QR de finalizar entrega
+  // del celular del cliente (en vez de que el cliente le dicte el codigo a
+  // mano) — se llena solo y ya no hace falta escribirlo.
   function FinishDeliveryModal(props){
-    var _code = React.useState(''); var code = _code[0], setCode = _code[1];
-    var _secCode = React.useState(''); var secCode = _secCode[0], setSecCode = _secCode[1];
+    var _code = React.useState(props.prefillCode || ''); var code = _code[0], setCode = _code[1];
     var _photo = React.useState(null); var photo = _photo[0], setPhoto = _photo[1];
     var _photoBusy = React.useState(false); var photoBusy = _photoBusy[0], setPhotoBusy = _photoBusy[1];
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
     var _loading = React.useState(false); var loading = _loading[0], setLoading = _loading[1];
+    var scannedByQr = !!props.prefillCode;
 
     function onPhotoSelected(ev){
       var file = ev.target.files && ev.target.files[0];
@@ -1097,16 +1154,15 @@
       setLoading(true); setErr('');
       apiFetch('/api/quotes/' + props.quote.id + '/finish-delivery', props.token, { method:'POST', body: JSON.stringify({ code: code }) })
         .then(function(){
-          // El codigo de seguridad y la foto son una verificacion visual extra
-          // que no valida el backend (solo conoce el codigo enviado por
-          // WhatsApp) — quedan guardados aqui como respaldo local del repartidor.
+          // La foto queda guardada aqui como respaldo local del repartidor (no
+          // hay endpoint de fotos en el backend).
           saveDeliveryConfirmation({
             id: Date.now(),
             quoteId: props.quote.id,
             orderRef: 'F4E-' + String(props.quote.id).padStart(6, '0'),
             customerName: props.quote.customer_name,
             customerPhone: props.quote.customer_phone,
-            securityCode: secCode.trim(),
+            securityCode: code,
             photo: photo,
             timestamp: new Date().toISOString()
           });
@@ -1122,12 +1178,11 @@
           e('h2', { style:{ fontSize:'1.05rem' } }, 'Finalizar entrega'),
           e('button', { className:'modal-close', onClick:props.onClose }, '×')
         ),
-        e('p', { className:'hint' }, 'Pídele a ' + props.quote.customer_name + ' el código QR y el código de seguridad de su factura, y toma una foto del producto entregado.'),
+        e('p', { className:'hint' },
+          scannedByQr
+            ? 'Código verificado por QR. Toma una foto del producto entregado y confirma.'
+            : 'Pídele a ' + props.quote.customer_name + ' el código que le llegó por WhatsApp (o escanea su QR), y toma una foto del producto entregado.'),
         e('form', { onSubmit: submit },
-          e('div', { className:'field' },
-            e('label', null, 'Código de seguridad de la factura del cliente'),
-            e('input', { value:secCode, onChange:function(ev){ setSecCode(ev.target.value); }, placeholder:'Ej. TX3HTE', style:{ textAlign:'center', letterSpacing:'0.15em', textTransform:'uppercase' } })
-          ),
           e('div', { className:'field' },
             e('label', null, 'Foto del producto entregado'),
             e('input', { type:'file', accept:'image/*', capture:'environment', onChange:onPhotoSelected }),
@@ -1136,7 +1191,11 @@
           ),
           e('div', { className:'field' },
             e('label', null, 'Código que le llegó al cliente por WhatsApp'),
-            e('input', { value:code, onChange:function(ev){ setCode(ev.target.value); }, required:true, maxLength:6, style:{ textAlign:'center', fontSize:'1.3rem', letterSpacing:'0.2em' } })
+            e('input', {
+              value:code, onChange:function(ev){ setCode(ev.target.value); }, required:true, maxLength:6,
+              readOnly:scannedByQr,
+              style:{ textAlign:'center', fontSize:'1.3rem', letterSpacing:'0.2em', background:scannedByQr ? 'var(--surface-hi)' : undefined }
+            })
           ),
           err ? e('div', { className:'error-msg' }, err) : null,
           e('button', { type:'submit', className:'btn btn-primary', style:{ width:'100%' }, disabled:loading }, loading ? 'Verificando…' : 'Confirmar entrega')
@@ -1152,6 +1211,7 @@
     var _scannerOpen = React.useState(false); var scannerOpen = _scannerOpen[0], setScannerOpen = _scannerOpen[1];
     var _qrQuote = React.useState(null); var qrQuote = _qrQuote[0], setQrQuote = _qrQuote[1];
     var _finishQuote = React.useState(null); var finishQuote = _finishQuote[0], setFinishQuote = _finishQuote[1];
+    var _finishPrefillCode = React.useState(null); var finishPrefillCode = _finishPrefillCode[0], setFinishPrefillCode = _finishPrefillCode[1];
     var _deliveryResult = React.useState(null); var deliveryResult = _deliveryResult[0], setDeliveryResult = _deliveryResult[1];
     var _feedback = React.useState(null); var feedback = _feedback[0], setFeedback = _feedback[1];
 
@@ -1198,6 +1258,19 @@
 
     function handleScanned(text){
       setScannerOpen(false);
+      // Primero revisa si es el QR de finalizar entrega (trae el codigo de
+      // seguridad real incluido) que el cliente muestra desde su WhatsApp —
+      // en ese caso se abre el formulario ya con el codigo verificado.
+      var finish = parseFinishQrText(text);
+      if (finish) {
+        var fq = quotes.find(function(x){ return x.id === finish.quoteId; });
+        if (!fq) { setErr('No se encontró ningún pedido confirmado con ese número (#' + finish.quoteId + ').'); return; }
+        if (fq.dispatch_status !== 'despachado') { setErr('El pedido de ' + fq.customer_name + ' no está en camino todavía.'); return; }
+        setErr('');
+        setFinishPrefillCode(finish.code);
+        setFinishQuote(fq);
+        return;
+      }
       var id = parseOrderCode(text);
       var q = quotes.find(function(x){ return x.id === id; });
       if (!q) { setErr('No se encontró ningún pedido confirmado con ese número (#' + (id || text) + ').'); return; }
@@ -1207,6 +1280,7 @@
         // entrega automaticamente al cerrar el aviso.
         setFeedback({ message: 'Iniciando entrega para ' + q.customer_name, next: function(){ startDelivery(q); } });
       } else if (q.dispatch_status === 'despachado') {
+        setFinishPrefillCode(null);
         setFinishQuote(q);
       } else {
         setErr('El pedido de ' + q.customer_name + ' ya fue entregado.');
@@ -1246,7 +1320,9 @@
                 e('option', { value:'preparando' }, 'Preparando')
               ),
               (q.dispatch_status === 'pendiente' || q.dispatch_status === 'preparando') && e('button', { className:'btn btn-primary', onClick:function(){ startDelivery(q); } }, 'Iniciar entrega'),
-              q.dispatch_status === 'despachado' && e('button', { className:'btn btn-primary', onClick:function(){ setFinishQuote(q); } }, 'Finalizar entrega')
+              q.dispatch_status === 'despachado' && e('button', {
+                className:'btn btn-primary', onClick:function(){ setFinishPrefillCode(null); setFinishQuote(q); }
+              }, 'Finalizar entrega')
             )
           )
         );
@@ -1254,10 +1330,12 @@
       scannerOpen ? e(ScannerModal, { onScanned:handleScanned, onClose:function(){ setScannerOpen(false); } }) : null,
       qrQuote ? e(QrModal, { quote:qrQuote, onClose:function(){ setQrQuote(null); } }) : null,
       finishQuote ? e(FinishDeliveryModal, {
-        token:props.token, quote:finishQuote, onClose:function(){ setFinishQuote(null); },
+        token:props.token, quote:finishQuote, prefillCode:finishPrefillCode,
+        onClose:function(){ setFinishQuote(null); setFinishPrefillCode(null); },
         onDone:function(){
           var q = finishQuote;
           setFinishQuote(null);
+          setFinishPrefillCode(null);
           setFeedback({ message: '¡Finalizaste la entrega de ' + q.customer_name + '!', next: load });
         }
       }) : null,

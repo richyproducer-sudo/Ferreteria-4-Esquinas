@@ -468,7 +468,6 @@
   .security-block{ display:flex; flex-direction:column; gap:0.4rem; padding-top:0.65rem; border-top:1px dashed var(--line); }
   .delivery-toggle{ display:flex; gap:0.5rem; }
   .security-btn{ align-self:flex-start; padding:0.5rem 1rem; font-size:0.8rem; }
-  .security-code{ font-size:0.76rem; color:var(--accent-bright); font-weight:700; background:rgba(0,229,255,0.08); border:1px solid var(--line); border-radius:6px; padding:0.4rem 0.65rem; line-height:1.4; }
 
   /* ---------------- whatsapp float ---------------- */
   .wa-float{
@@ -1479,17 +1478,6 @@
     }
   }
 
-  // Codigo de seguridad aleatorio (no adivinable), distinto del numero de pedido
-  // secuencial F4E-XXXXXX. Evita caracteres ambiguos (0/O, 1/I/L).
-  function randomSecurityCode(){
-    var chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    var bytes = new Uint8Array(6);
-    (window.crypto || window.msCrypto).getRandomValues(bytes);
-    var code = '';
-    for (var i = 0; i < bytes.length; i++) code += chars[bytes[i] % chars.length];
-    return code;
-  }
-
   // Descarga generica de un archivo de texto en el navegador (Blob + <a download>).
   // No depende de ninguna API externa, funciona en cualquier navegador normal.
   function triggerTextDownload(filename, text){
@@ -1727,16 +1715,15 @@
     return y + boxH + 8;
   }
 
-  // Factura POS con el mismo formato formal. A domicilio incluye la direccion,
-  // el codigo de seguridad aleatorio y un QR (formato "F4E-Q-<id>") que el
-  // escaner de "Despacho y Bodega" en el panel de admin ya sabe leer; en el
-  // punto fisico solo lleva el QR del pedido (sin codigo de seguridad, porque
-  // el cliente ya esta presente en tienda). "orderRef" es el numero de pedido
-  // F4E-XXXXXX (buscable en el panel de admin); "securityCode" es el codigo
-  // aleatorio vinculado a esta factura (null en modo punto fisico); "qrText" es
+  // Factura POS con el mismo formato formal, mas el QR que identifica el pedido
+  // (formato "F4E-Q-<id>", el mismo que ya lee el escaner de "Despacho y
+  // Bodega" en el panel de admin) — no lleva ningun codigo secreto impreso; el
+  // codigo real para finalizar la entrega le llega al cliente por WhatsApp
+  // cuando el pedido se despacha, no por este documento. "orderRef" es el
+  // numero de pedido F4E-XXXXXX (buscable en el panel de admin); "qrText" es
   // el texto del QR (null sin pedido real en el backend); "delivery" es
   // 'domicilio' o 'tienda'.
-  function buildFacturaPOSPDF(cart, name, phone, orderRef, securityCode, qrText, delivery, address, cedula){
+  function buildFacturaPOSPDF(cart, name, phone, orderRef, qrText, delivery, address, cedula){
     var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
     var pageWidth = doc.internal.pageSize.getWidth();
     var marginX = 15;
@@ -1754,27 +1741,13 @@
     });
 
     y += 6;
-    if (delivery === 'domicilio' && securityCode) {
-      doc.setDrawColor(0); doc.setLineWidth(0.4);
-      var boxH = 18;
-      doc.roundedRect(marginX, y, pageWidth - marginX * 2, boxH, 2, 2);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-      doc.text(securityCode, pageWidth / 2, y + 9, { align: 'center' });
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-      doc.text('Código de seguridad — muéstralo al repartidor', pageWidth / 2, y + 15, { align: 'center' });
-      y += boxH + 8;
-    }
-
     var qrImg = qrCodeDataURL(qrText, 200);
     if (qrImg) {
       var qrSize = 30;
       doc.addImage(qrImg, 'PNG', (pageWidth - qrSize) / 2, y, qrSize, qrSize);
       y += qrSize + 4;
       doc.setFontSize(7.5);
-      doc.text(
-        delivery === 'domicilio' ? 'Escanéalo en Despacho y Bodega para sincronizar el pedido' : 'Escanea este QR en el punto físico para identificar tu pedido',
-        pageWidth / 2, y, { align: 'center' }
-      );
+      doc.text('Escanéalo en Despacho y Bodega para identificar el pedido', pageWidth / 2, y, { align: 'center' });
     }
 
     return doc;
@@ -1869,74 +1842,25 @@
       triggerTextDownload('venta-4esquinas.txt', text);
     }
 
-    // Codigo de seguridad: aleatorio (no se puede adivinar a partir de otro pedido),
-    // pero queda vinculado al numero de pedido F4E-XXXXXX de esa misma factura/
-    // cotizacion, que es el que el equipo puede buscar despues en el panel de
-    // administracion. Identifica el pedido para el repartidor o para que el
-    // personal en tienda sepa cual pedido es cuando el cliente llega a recogerlo.
-    // Solo aplica al modo "venta" — una cotizacion todavia no es un pedido real.
-    var secStatusState = React.useState('idle'); // idle | loading | ready | error
-    var secStatus = secStatusState[0], setSecStatus = secStatusState[1];
-    var secCodeState = React.useState(null);
-    var secCode = secCodeState[0], setSecCode = secCodeState[1];
-    var orderRefState = React.useState(null);
-    var orderRef = orderRefState[0], setOrderRef = orderRefState[1];
-
-    // Devuelve una promesa con { securityCode, orderRef, quoteId }, generando el
-    // codigo aleatorio una sola vez, para que el bloque en pantalla y la Factura
-    // POS siempre muestren el mismo par de codigos para este pedido. "quoteId" es
-    // el id numerico crudo (o null sin backend) — se usa para armar el QR en el
-    // mismo formato "F4E-Q-<id>" que ya lee el escaner de Despacho y Bodega.
-    function ensureSecurityCode(){
-      if (secCode) return Promise.resolve({ securityCode: secCode, orderRef: orderRef, quoteId: quoteIdRef.current });
-      setSecStatus('loading');
-      var code = randomSecurityCode();
-      return ensureQuoteSaved().then(function(quoteId){
-        var ref = quoteIdToCode(quoteId);
-        setSecCode(code);
-        setOrderRef(ref);
-        setSecStatus('ready');
-        return { securityCode: code, orderRef: ref, quoteId: quoteId };
-      }).catch(function(){ setSecStatus('error'); return null; });
-    }
-
-    function generateSecurityCode(){
-      if (!ids.length) return;
-      ensureSecurityCode();
-    }
-
     var posStatusState = React.useState('idle'); // idle | loading | error
     var posStatus = posStatusState[0], setPosStatus = posStatusState[1];
 
-    // A domicilio: la factura lleva la direccion, el codigo de seguridad y el QR
-    // (el repartidor necesita verificar quien recibe). En el punto fisico: solo
-    // el QR del pedido, sin codigo de seguridad — el cliente ya esta presente.
+    // La Factura POS solo lleva el QR que identifica el pedido (formato
+    // "F4E-Q-<id>", el mismo que ya lee el escaner de Despacho y Bodega) — no
+    // lleva ningun codigo de seguridad impreso, porque cualquiera que maneje el
+    // paquete (incluido el repartidor) podria verlo ahi. El codigo de seguridad
+    // real para finalizar la entrega le llega al cliente solo por WhatsApp
+    // cuando el pedido se despacha (ver DeliveryCodeModal en el panel de admin).
     function downloadFacturaPOS(){
       if (!ids.length) return;
       setPosStatus('loading');
-      if (delivery === 'domicilio') {
-        ensureSecurityCode().then(function(result){
-          if (!result) { setPosStatus('error'); return; }
-          // Mismo formato "F4E-Q-<id>" que ya genera y lee el escaner de Despacho
-          // y Bodega en el panel de admin, para que el QR sincronice directo con
-          // esa pantalla. Si no hay id real del backend (sin conexion o catalogo
-          // local), el QR se genera igual mas usando el codigo de seguridad como
-          // texto — asi la factura SIEMPRE lleva un QR para verificar el pedido,
-          // aunque en ese caso no se pueda buscar en el panel de admin.
-          var qrText = 'F4E-Q-' + (result.quoteId || result.securityCode);
-          var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), result.orderRef, result.securityCode, qrText, 'domicilio', address.trim(), cedula.trim());
-          doc.save('factura-pos-' + result.securityCode + '.pdf');
-          setPosStatus('idle');
-        }).catch(function(){ setPosStatus('error'); });
-      } else {
-        ensureQuoteSaved().then(function(quoteId){
-          var ref = quoteIdToCode(quoteId);
-          var qrText = 'F4E-Q-' + (quoteId || ref);
-          var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), ref, null, qrText, 'tienda', '', cedula.trim());
-          doc.save('factura-pos-' + ref + '.pdf');
-          setPosStatus('idle');
-        }).catch(function(){ setPosStatus('error'); });
-      }
+      ensureQuoteSaved().then(function(quoteId){
+        var ref = quoteIdToCode(quoteId);
+        var qrText = 'F4E-Q-' + (quoteId || ref);
+        var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), ref, qrText, delivery, delivery === 'domicilio' ? address.trim() : '', cedula.trim());
+        doc.save('factura-pos-' + ref + '.pdf');
+        setPosStatus('idle');
+      }).catch(function(){ setPosStatus('error'); });
     }
 
     var modeLabel = mode === 'cotizacion' ? 'cotización' : 'venta';
@@ -1982,7 +1906,7 @@
         mode === 'venta' && e('div', { className: 'security-block' },
           e('p', { className: 'quote-note' },
             delivery === 'domicilio'
-              ? 'Entrega a domicilio: genera el código de seguridad para el repartidor y descarga tu factura con la dirección y el QR de entrega.'
+              ? 'Entrega a domicilio: descarga tu factura con la dirección y el QR de entrega. Tu código de seguridad para el repartidor te llegará por WhatsApp cuando despachemos tu pedido.'
               : 'Recoges en el punto físico: descarga tu factura con el QR para identificar tu pedido.'),
           e('div', { className: 'delivery-toggle' },
             e('button', {
@@ -1999,15 +1923,9 @@
               type: 'text', id: 'qAddress', placeholder: 'Calle, barrio, referencia…',
               value: address, onChange: function(ev){ setAddress(ev.target.value); }
             })),
-          e('div', { style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } },
-            delivery === 'domicilio' && e('button', {
-              className: 'btn security-btn', disabled: secStatus === 'loading', onClick: generateSecurityCode
-            }, secStatus === 'loading' ? 'Generando…' : 'Generar código de seguridad'),
-            e('button', {
-              className: 'btn btn-ghost security-btn', disabled: posStatus === 'loading', onClick: downloadFacturaPOS
-            }, posStatus === 'loading' ? 'Generando…' : 'Factura POS')),
-          delivery === 'domicilio' && secStatus === 'ready' && secCode && e('p', { className: 'security-code' }, 'Código de seguridad: ' + secCode),
-          delivery === 'domicilio' && secStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar el código. Intenta de nuevo.'),
+          e('button', {
+            className: 'btn btn-ghost security-btn', disabled: posStatus === 'loading', onClick: downloadFacturaPOS
+          }, posStatus === 'loading' ? 'Generando…' : 'Factura POS'),
           posStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar la factura POS. Intenta de nuevo.')),
         e('div', null,
           e('label', { htmlFor: 'qName' }, 'Tu nombre'),
