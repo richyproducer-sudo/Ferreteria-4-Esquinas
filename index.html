@@ -466,6 +466,7 @@
   .cart-mode-btn:hover{ border-color:var(--ink-muted); }
   .cart-mode-btn.active{ background:rgba(0,229,255,0.12); border-color:var(--accent); color:var(--accent-bright); }
   .security-block{ display:flex; flex-direction:column; gap:0.4rem; padding-top:0.65rem; border-top:1px dashed var(--line); }
+  .delivery-toggle{ display:flex; gap:0.5rem; }
   .security-btn{ align-self:flex-start; padding:0.5rem 1rem; font-size:0.8rem; }
   .security-code{ font-size:0.76rem; color:var(--accent-bright); font-weight:700; background:rgba(0,229,255,0.08); border:1px solid var(--line); border-radius:6px; padding:0.4rem 0.65rem; line-height:1.4; }
 
@@ -1704,18 +1705,60 @@
     return doc;
   }
 
-  // Factura POS con el mismo formato formal, mas el codigo de seguridad
-  // aleatorio y un QR (formato "F4E-Q-<id>") que el escaner de "Despacho y
-  // Bodega" en el panel de admin ya sabe leer, para sincronizar la factura con
-  // esa pantalla. "orderRef" es el numero de pedido F4E-XXXXXX (buscable en el
-  // panel de admin); "securityCode" es el codigo aleatorio vinculado a esta
-  // misma factura; "qrText" es el texto del QR (null sin pedido real en el backend).
-  function buildFacturaPOSPDF(cart, name, phone, orderRef, securityCode, qrText){
+  // Cuadro de cliente de la Factura POS: igual al de drawCustomerBox pero con
+  // filas variables (agrega DIRECCIÓN a domicilio, y ENTREGA a la derecha).
+  function drawFacturaCustomerBox(doc, opts){
+    var marginX = opts.marginX, pageWidth = opts.pageWidth, y = opts.y;
+    var leftRows = [['CLIENTE', opts.name || 'Consumidor final'], ['TELÉFONO', opts.phone || '—']];
+    if (opts.delivery === 'domicilio') leftRows.push(['DIRECCIÓN', opts.address || '—']);
+    var rightRows = [['FECHA', opts.dateValue], ['ENTREGA', opts.delivery === 'domicilio' ? 'A domicilio' : 'Recoge en el punto físico']];
+    var rowH = 5.3, rows = Math.max(leftRows.length, rightRows.length);
+    var boxH = rows * rowH + 3, boxW = pageWidth - marginX * 2, midX = marginX + boxW * 0.62;
+
+    doc.setDrawColor(180); doc.setLineWidth(0.3);
+    doc.rect(marginX, y, boxW, boxH);
+    doc.line(midX, y, midX, y + boxH);
+    for (var i = 1; i < rows; i++) {
+      var ly = y + rowH * i;
+      doc.line(marginX, ly, midX, ly);
+      doc.line(midX, ly, pageWidth - marginX, ly);
+    }
+    leftRows.forEach(function(r, i){
+      var ry = y + rowH * i + rowH - 1.5;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+      doc.text(r[0], marginX + 2, ry);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text(doc.splitTextToSize(String(r[1]), midX - marginX - 26)[0], marginX + 24, ry);
+    });
+    rightRows.forEach(function(r, i){
+      var ry = y + rowH * i + rowH - 1.5;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+      doc.text(r[0], midX + 3, ry);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text(doc.splitTextToSize(String(r[1]), pageWidth - marginX - midX - 22)[0], midX + 22, ry);
+    });
+
+    return y + boxH + 8;
+  }
+
+  // Factura POS con el mismo formato formal. A domicilio incluye la direccion,
+  // el codigo de seguridad aleatorio y un QR (formato "F4E-Q-<id>") que el
+  // escaner de "Despacho y Bodega" en el panel de admin ya sabe leer; en el
+  // punto fisico solo lleva el QR del pedido (sin codigo de seguridad, porque
+  // el cliente ya esta presente en tienda). "orderRef" es el numero de pedido
+  // F4E-XXXXXX (buscable en el panel de admin); "securityCode" es el codigo
+  // aleatorio vinculado a esta factura (null en modo punto fisico); "qrText" es
+  // el texto del QR (null sin pedido real en el backend); "delivery" es
+  // 'domicilio' o 'tienda'.
+  function buildFacturaPOSPDF(cart, name, phone, orderRef, securityCode, qrText, delivery, address){
     var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
     var pageWidth = doc.internal.pageSize.getWidth();
     var marginX = 15;
     var y = drawDocHeader(doc, { title: 'FACTURA POS', number: orderRef, pageWidth: pageWidth, marginX: marginX, extraLine: null });
-    y = drawCustomerBox(doc, { name: name, phone: phone, pageWidth: pageWidth, marginX: marginX, y: y, rightLabel: 'FECHA', rightValue: new Date().toLocaleString('es-CO') });
+    y = drawFacturaCustomerBox(doc, {
+      name: name, phone: phone, delivery: delivery, address: address,
+      pageWidth: pageWidth, marginX: marginX, y: y, dateValue: new Date().toLocaleString('es-CO')
+    });
     var table = drawItemsTable(doc, cart, { pageWidth: pageWidth, marginX: marginX, y: y });
     y = drawTotalsBox(doc, { subtotal: table.subtotal, pageWidth: pageWidth, marginX: marginX, y: table.y });
     y = drawSignatureLines(doc, { pageWidth: pageWidth, marginX: marginX, y: y, leftLabel: 'ELABORADO POR', rightLabel: 'RECIBIDO, FIRMA Y/O SELLO Y FECHA' });
@@ -1725,14 +1768,16 @@
     });
 
     y += 6;
-    doc.setDrawColor(0); doc.setLineWidth(0.4);
-    var boxH = 18;
-    doc.roundedRect(marginX, y, pageWidth - marginX * 2, boxH, 2, 2);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-    doc.text(securityCode, pageWidth / 2, y + 9, { align: 'center' });
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-    doc.text('Código de seguridad — muéstralo al repartidor o en el punto físico', pageWidth / 2, y + 15, { align: 'center' });
-    y += boxH + 8;
+    if (delivery === 'domicilio' && securityCode) {
+      doc.setDrawColor(0); doc.setLineWidth(0.4);
+      var boxH = 18;
+      doc.roundedRect(marginX, y, pageWidth - marginX * 2, boxH, 2, 2);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+      doc.text(securityCode, pageWidth / 2, y + 9, { align: 'center' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text('Código de seguridad — muéstralo al repartidor', pageWidth / 2, y + 15, { align: 'center' });
+      y += boxH + 8;
+    }
 
     var qrImg = qrCodeDataURL(qrText, 200);
     if (qrImg) {
@@ -1740,7 +1785,10 @@
       doc.addImage(qrImg, 'PNG', (pageWidth - qrSize) / 2, y, qrSize, qrSize);
       y += qrSize + 4;
       doc.setFontSize(7.5);
-      doc.text('Escanéalo en Despacho y Bodega para sincronizar el pedido', pageWidth / 2, y, { align: 'center' });
+      doc.text(
+        delivery === 'domicilio' ? 'Escanéalo en Despacho y Bodega para sincronizar el pedido' : 'Escanea este QR en el punto físico para identificar tu pedido',
+        pageWidth / 2, y, { align: 'center' }
+      );
     }
 
     return doc;
@@ -1755,6 +1803,10 @@
     var phone = phoneState[0], setPhone = phoneState[1];
     var modeState = React.useState('venta'); // 'venta' | 'cotizacion'
     var mode = modeState[0], setMode = modeState[1];
+    var deliveryState = React.useState('tienda'); // 'tienda' | 'domicilio'
+    var delivery = deliveryState[0], setDelivery = deliveryState[1];
+    var addressState = React.useState('');
+    var address = addressState[0], setAddress = addressState[1];
 
     React.useEffect(function(){
       return window.CartStore.subscribe(function(next){ setCart(Object.assign({}, next)); });
@@ -1868,20 +1920,33 @@
     var posStatusState = React.useState('idle'); // idle | loading | error
     var posStatus = posStatusState[0], setPosStatus = posStatusState[1];
 
+    // A domicilio: la factura lleva la direccion, el codigo de seguridad y el QR
+    // (el repartidor necesita verificar quien recibe). En el punto fisico: solo
+    // el QR del pedido, sin codigo de seguridad — el cliente ya esta presente.
     function downloadFacturaPOS(){
       if (!ids.length) return;
       setPosStatus('loading');
-      ensureSecurityCode().then(function(result){
-        if (!result) { setPosStatus('error'); return; }
-        // Mismo formato "F4E-Q-<id>" que ya genera y lee el escaner de Despacho y
-        // Bodega en el panel de admin — asi el QR de esta factura sincroniza
-        // directo con esa pantalla sin tocar nada mas. Sin backend (catalogo local
-        // o sin conexion) no hay id real que escanear, asi que se omite el QR.
-        var qrText = result.quoteId ? ('F4E-Q-' + result.quoteId) : null;
-        var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), result.orderRef, result.securityCode, qrText);
-        doc.save('factura-pos-' + result.securityCode + '.pdf');
-        setPosStatus('idle');
-      }).catch(function(){ setPosStatus('error'); });
+      if (delivery === 'domicilio') {
+        ensureSecurityCode().then(function(result){
+          if (!result) { setPosStatus('error'); return; }
+          // Mismo formato "F4E-Q-<id>" que ya genera y lee el escaner de Despacho
+          // y Bodega en el panel de admin — asi el QR de esta factura sincroniza
+          // directo con esa pantalla sin tocar nada mas. Sin backend (catalogo
+          // local o sin conexion) no hay id real que escanear, asi que se omite.
+          var qrText = result.quoteId ? ('F4E-Q-' + result.quoteId) : null;
+          var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), result.orderRef, result.securityCode, qrText, 'domicilio', address.trim());
+          doc.save('factura-pos-' + result.securityCode + '.pdf');
+          setPosStatus('idle');
+        }).catch(function(){ setPosStatus('error'); });
+      } else {
+        ensureQuoteSaved().then(function(quoteId){
+          var ref = quoteIdToCode(quoteId);
+          var qrText = quoteId ? ('F4E-Q-' + quoteId) : null;
+          var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), ref, null, qrText, 'tienda', '');
+          doc.save('factura-pos-' + ref + '.pdf');
+          setPosStatus('idle');
+        }).catch(function(){ setPosStatus('error'); });
+      }
     }
 
     var modeLabel = mode === 'cotizacion' ? 'cotización' : 'venta';
@@ -1925,16 +1990,34 @@
           e('span', { className: 'val mono' }, money(subtotal)))),
       ids.length > 0 && e('div', { className: 'quote-panel show' },
         mode === 'venta' && e('div', { className: 'security-block' },
-          e('p', { className: 'quote-note' }, 'Genera un código de seguridad para identificar tu pedido: muéstralo al repartidor o en el punto físico al recogerlo.'),
-          e('div', { style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } },
+          e('p', { className: 'quote-note' },
+            delivery === 'domicilio'
+              ? 'Entrega a domicilio: genera el código de seguridad para el repartidor y descarga tu factura con la dirección y el QR de entrega.'
+              : 'Recoges en el punto físico: descarga tu factura con el QR para identificar tu pedido.'),
+          e('div', { className: 'delivery-toggle' },
             e('button', {
+              type: 'button', className: 'cart-mode-btn' + (delivery === 'tienda' ? ' active' : ''),
+              onClick: function(){ setDelivery('tienda'); }
+            }, 'Recoger en tienda'),
+            e('button', {
+              type: 'button', className: 'cart-mode-btn' + (delivery === 'domicilio' ? ' active' : ''),
+              onClick: function(){ setDelivery('domicilio'); }
+            }, 'A domicilio')),
+          delivery === 'domicilio' && e('div', { className: 'delivery-address' },
+            e('label', { htmlFor: 'qAddress' }, 'Dirección de entrega'),
+            e('input', {
+              type: 'text', id: 'qAddress', placeholder: 'Calle, barrio, referencia…',
+              value: address, onChange: function(ev){ setAddress(ev.target.value); }
+            })),
+          e('div', { style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } },
+            delivery === 'domicilio' && e('button', {
               className: 'btn security-btn', disabled: secStatus === 'loading', onClick: generateSecurityCode
             }, secStatus === 'loading' ? 'Generando…' : 'Generar código de seguridad'),
             e('button', {
               className: 'btn btn-ghost security-btn', disabled: posStatus === 'loading', onClick: downloadFacturaPOS
             }, posStatus === 'loading' ? 'Generando…' : 'Factura POS')),
-          secStatus === 'ready' && secCode && e('p', { className: 'security-code' }, 'Código de seguridad: ' + secCode),
-          secStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar el código. Intenta de nuevo.'),
+          delivery === 'domicilio' && secStatus === 'ready' && secCode && e('p', { className: 'security-code' }, 'Código de seguridad: ' + secCode),
+          delivery === 'domicilio' && secStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar el código. Intenta de nuevo.'),
           posStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar la factura POS. Intenta de nuevo.')),
         e('div', null,
           e('label', { htmlFor: 'qName' }, 'Tu nombre'),
