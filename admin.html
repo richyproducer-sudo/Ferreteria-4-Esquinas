@@ -996,6 +996,21 @@
     try { localStorage.setItem(DISMISSED_DISPATCH_KEY, JSON.stringify(list)); } catch (err) {}
   }
 
+  // El codigo de seguridad que devuelve /start-delivery solo llega una vez en
+  // esa respuesta (el backend no lo vuelve a exponer despues) — se guarda aqui
+  // para poder mostrar de nuevo el QR de finalizar entrega desde "Ver QR" sin
+  // tener que reiniciar la entrega.
+  var DISPATCH_CODES_KEY = 'f4e_dispatch_codes_v1';
+  function saveDispatchCode(quoteId, code){
+    var map = {};
+    try { map = JSON.parse(localStorage.getItem(DISPATCH_CODES_KEY)) || {}; } catch (err) {}
+    map[quoteId] = code;
+    try { localStorage.setItem(DISPATCH_CODES_KEY, JSON.stringify(map)); } catch (err) {}
+  }
+  function getDispatchCode(quoteId){
+    try { return (JSON.parse(localStorage.getItem(DISPATCH_CODES_KEY)) || {})[quoteId] || null; } catch (err) { return null; }
+  }
+
   function ScannerModal(props){
     var scannerRef = React.useRef(null);
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
@@ -1061,23 +1076,48 @@
     );
   }
 
+  // Muestra los DOS codigos QR del pedido, bien diferenciados:
+  // 1) el que identifica el pedido — lo escanea el repartidor/bodega para
+  //    INICIAR el recorrido (o para ubicar el pedido en cualquier momento).
+  // 2) el que solo tiene el cliente — se lo entrega al repartidor para
+  //    FINALIZAR la entrega. Solo aparece despues de iniciar la entrega (es
+  //    cuando el backend genera ese codigo), y se recuerda en este navegador
+  //    para poder volver a verlo sin tener que reiniciar la entrega.
   function QrModal(props){
-    var boxRef = React.useRef(null);
+    var startBoxRef = React.useRef(null);
+    var finishBoxRef = React.useRef(null);
+    var finishCode = getDispatchCode(props.quote.id);
+
     React.useEffect(function(){
-      if (boxRef.current) {
-        boxRef.current.innerHTML = '';
-        new QRCode(boxRef.current, { text: 'F4E-Q-' + props.quote.id, width: 220, height: 220 });
+      if (startBoxRef.current) {
+        startBoxRef.current.innerHTML = '';
+        new QRCode(startBoxRef.current, { text: 'F4E-Q-' + props.quote.id, width: 180, height: 180 });
+      }
+      if (finishCode && finishBoxRef.current) {
+        finishBoxRef.current.innerHTML = '';
+        new QRCode(finishBoxRef.current, { text: buildFinishQrText(props.quote.id, finishCode), width: 180, height: 180 });
       }
     }, []);
+
     return e('div', { className:'modal-overlay', onClick:function(ev){ if (ev.target === ev.currentTarget) props.onClose(); } },
-      e('div', { className:'modal', style:{ maxWidth:'340px', textAlign:'center' } },
+      e('div', { className:'modal', style:{ maxWidth:'360px', textAlign:'center' } },
         e('div', { className:'modal-head' },
           e('h2', { style:{ fontSize:'1.05rem' } }, 'Pedido #' + props.quote.id),
           e('button', { className:'modal-close', onClick:props.onClose }, '×')
         ),
         e('p', { className:'hint' }, props.quote.customer_name),
-        e('div', { className:'qr-box' }, e('div', { ref:boxRef })),
-        e('p', { className:'hint' }, 'Imprime o pega este código en el paquete para escanearlo despues.')
+
+        e('p', { className:'hint', style:{ fontWeight:700, color:'var(--ink)', marginTop:'0.8rem' } }, '1. QR para iniciar el recorrido'),
+        e('p', { className:'hint' }, 'Lo escanea el repartidor o bodega para identificar y despachar el pedido.'),
+        e('div', { className:'qr-box' }, e('div', { ref:startBoxRef })),
+
+        e('p', { className:'hint', style:{ fontWeight:700, color:'var(--ink)', marginTop:'1rem' } }, '2. QR que da el cliente para finalizar'),
+        finishCode
+          ? e(React.Fragment, null,
+              e('p', { className:'hint' }, 'Se le envió al cliente por WhatsApp — se lo muestra al repartidor para finalizar la entrega.'),
+              e('div', { className:'qr-box' }, e('div', { ref:finishBoxRef }))
+            )
+          : e('p', { className:'hint' }, 'Todavía no se ha iniciado la entrega de este pedido, así que este QR aún no existe.')
       )
     );
   }
@@ -1254,6 +1294,7 @@
       setErr('');
       apiFetch('/api/quotes/' + q.id + '/start-delivery', props.token, { method:'POST' })
         .then(function(data){
+          saveDispatchCode(q.id, data.delivery_code);
           setDeliveryResult({ quote: data.quote, code: data.delivery_code });
           load();
         })
