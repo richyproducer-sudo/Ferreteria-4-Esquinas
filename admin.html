@@ -146,7 +146,7 @@
   var API_BASE = "https://ferreteria-4-esquinas-backend.onrender.com";
 
   var TOKEN_KEY = 'f4e_admin_token_v1';
-  var CATEGORY_OPTIONS = ['pinturas','herramientas','plomeria','electricos','seguridad','cerrajeria'];
+  var CATEGORY_OPTIONS = ['pinturas','herramientas','plomeria','electricos','seguridad','cerrajeria','general'];
   var ICON_OPTIONS = ['pintura','herramienta','plomeria','electrico','seguridad','cerrajeria'];
 
   function money(n){ return "$ " + Math.round(Number(n) || 0).toLocaleString('es-CO') + " COP"; }
@@ -338,6 +338,8 @@
     var _showForm = React.useState(false); var showForm = _showForm[0], setShowForm = _showForm[1];
     var _search = React.useState(''); var search = _search[0], setSearch = _search[1];
     var _catFilter = React.useState('todas'); var catFilter = _catFilter[0], setCatFilter = _catFilter[1];
+    var _syncing = React.useState(false); var syncing = _syncing[0], setSyncing = _syncing[1];
+    var _syncResult = React.useState(null); var syncResult = _syncResult[0], setSyncResult = _syncResult[1];
 
     function load(){
       setLoading(true);
@@ -347,6 +349,16 @@
         .finally(function(){ setLoading(false); });
     }
     React.useEffect(load, []);
+
+    function syncAlegra(){
+      if (!window.confirm('Esto trae el catálogo completo de Alegra y desactiva los productos que no vengan de Alegra. Puede tardar varios minutos. ¿Continuar?')) return;
+      setSyncing(true);
+      setSyncResult(null);
+      apiFetch('/api/products/sync-alegra', props.token, { method:'POST' })
+        .then(function(data){ setSyncResult(data); setErr(''); load(); })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setSyncing(false); });
+    }
 
     function remove(p){
       if (!window.confirm('¿Eliminar "' + p.name + '"? Se ocultará del catálogo.')) return;
@@ -362,10 +374,18 @@
     });
 
     return e('div', null,
-      e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.2rem' } },
+      e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.2rem', gap:'0.6rem', flexWrap:'wrap' } },
         e('h2', { style:{ fontSize:'1.15rem' } }, 'Catálogo'),
-        e('button', { className:'btn btn-primary', onClick:function(){ setEditing(null); setShowForm(true); } }, '+ Nuevo producto')
+        e('div', { style:{ display:'flex', gap:'0.6rem' } },
+          e('button', { className:'btn', disabled:syncing, onClick:syncAlegra }, syncing ? 'Sincronizando…' : 'Sincronizar con Alegra'),
+          e('button', { className:'btn btn-primary', onClick:function(){ setEditing(null); setShowForm(true); } }, '+ Nuevo producto')
+        )
       ),
+      syncResult ? e('div', { className:'hint', style:{ marginBottom:'0.8rem' } },
+        'Sincronización completa: ' + syncResult.total_alegra + ' productos en Alegra, ' +
+        syncResult.created + ' creados, ' + syncResult.updated + ' actualizados, ' +
+        syncResult.deactivated_non_alegra + ' desactivados por no venir de Alegra.'
+      ) : null,
       e('div', { className:'search-row' },
         e('input', { placeholder:'Buscar por nombre…', value:search, onChange:function(ev){ setSearch(ev.target.value); } }),
         e('select', { value:catFilter, onChange:function(ev){ setCatFilter(ev.target.value); } },
