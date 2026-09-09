@@ -493,12 +493,24 @@
     );
   }
 
+  var JOB_TITLE_PRESETS = ['Dueño', 'Encargado de logística', 'Despacho y bodega', 'Cajero', 'Empleado'];
+
   function StaffForm(props){
     var _f = React.useState({ name:'', email:'', password:'', role:'admin' }); var form = _f[0], setForm = _f[1];
+    var _jobPreset = React.useState('Empleado'); var jobPreset = _jobPreset[0], setJobPreset = _jobPreset[1];
+    var _jobCustom = React.useState(''); var jobCustom = _jobCustom[0], setJobCustom = _jobCustom[1];
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
     var _saving = React.useState(false); var saving = _saving[0], setSaving = _saving[1];
 
     function set(key){ return function(ev){ setForm(Object.assign({}, form, { [key]: ev.target.value })); }; }
+
+    function onJobPresetChange(ev){
+      var value = ev.target.value;
+      setJobPreset(value);
+      // Atajo: si el puesto es "Dueño", se sugiere automaticamente el rol de super admin
+      // (el usuario puede cambiarlo despues con el selector de Rol si no quiere).
+      if (value === 'Dueño') setForm(Object.assign({}, form, { role: 'superadmin' }));
+    }
 
     function submit(ev){
       ev.preventDefault();
@@ -506,8 +518,9 @@
         setErr('Nombre, correo y una contraseña de al menos 8 caracteres son obligatorios.');
         return;
       }
+      var jobTitle = jobPreset === 'Otro' ? jobCustom.trim() : jobPreset;
       setSaving(true); setErr('');
-      apiFetch('/api/staff', props.token, { method:'POST', body: JSON.stringify(form) })
+      apiFetch('/api/staff', props.token, { method:'POST', body: JSON.stringify(Object.assign({}, form, { job_title: jobTitle })) })
         .then(function(){ props.onSaved(); })
         .catch(function(e){ setErr(e.message); })
         .finally(function(){ setSaving(false); });
@@ -523,11 +536,19 @@
           e('div', { className:'field' }, e('label', null, 'Nombre'), e('input', { value:form.name, onChange:set('name'), required:true })),
           e('div', { className:'field' }, e('label', null, 'Correo'), e('input', { type:'email', value:form.email, onChange:set('email'), required:true })),
           e('div', { className:'field' }, e('label', null, 'Contraseña'), e('input', { type:'password', value:form.password, onChange:set('password'), required:true, minLength:8 })),
-          e('div', { className:'field' }, e('label', null, 'Rol'),
+          e('div', { className:'field' }, e('label', null, 'Puesto'),
+            e('select', { value:jobPreset, onChange:onJobPresetChange },
+              JOB_TITLE_PRESETS.map(function(j){ return e('option', { key:j, value:j }, j); }),
+              e('option', { value:'Otro' }, 'Otro (escribir)')
+            ),
+            jobPreset === 'Otro' && e('input', { style:{ marginTop:'0.5rem' }, placeholder:'Escribe el puesto', value:jobCustom, onChange:function(ev){ setJobCustom(ev.target.value); }, required:true })
+          ),
+          e('div', { className:'field' }, e('label', null, 'Rol (nivel de acceso)'),
             e('select', { value:form.role, onChange:set('role') },
               e('option', { value:'admin' }, 'Administrador'),
               e('option', { value:'superadmin' }, 'Super administrador')
-            )
+            ),
+            e('p', { className:'hint', style:{ marginTop:'0.3rem' } }, 'Super administrador puede gestionar el equipo; Administrador solo catálogo y cotizaciones.')
           ),
           err ? e('div', { className:'error-msg' }, err) : null,
           e('div', { className:'form-actions' },
@@ -574,6 +595,17 @@
         .catch(function(e){ setErr(e.message); });
     }
 
+    function changeJobTitle(member, value){
+      var jobTitle = value;
+      if (value === 'Otro') {
+        jobTitle = window.prompt('Escribe el puesto para ' + member.name + ':', member.job_title || '');
+        if (jobTitle === null) return;
+      }
+      apiFetch('/api/staff/' + member.id + '/job-title', props.token, { method:'PUT', body: JSON.stringify({ job_title: jobTitle }) })
+        .then(load)
+        .catch(function(e){ setErr(e.message); });
+    }
+
     return e('div', null,
       e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.2rem' } },
         e('h2', { style:{ fontSize:'1.15rem' } }, 'Equipo (administradores)'),
@@ -585,13 +617,21 @@
       e('div', { className:'table-wrap' },
         e('table', null,
           e('thead', null, e('tr', null,
-            e('th', null, 'Nombre'), e('th', null, 'Correo'), e('th', null, 'Rol'),
+            e('th', null, 'Nombre'), e('th', null, 'Correo'), e('th', null, 'Puesto'), e('th', null, 'Rol'),
             e('th', null, 'Estado'), e('th', null, '')
           )),
           e('tbody', null, staff.map(function(m){
             return e('tr', { key:m.id },
               e('td', null, m.name),
               e('td', { className:'mono' }, m.email),
+              e('td', null, e('select', {
+                  value: JOB_TITLE_PRESETS.indexOf(m.job_title) !== -1 ? m.job_title : (m.job_title ? 'Otro' : ''),
+                  onChange:function(ev){ changeJobTitle(m, ev.target.value); }
+                },
+                  e('option', { value:'' }, '— Sin asignar —'),
+                  JOB_TITLE_PRESETS.map(function(j){ return e('option', { key:j, value:j }, j); }),
+                  e('option', { value:'Otro' }, m.job_title && JOB_TITLE_PRESETS.indexOf(m.job_title) === -1 ? m.job_title : 'Otro (escribir)')
+                )),
               e('td', null, e('span', { className:'badge ' + (m.role === 'superadmin' ? 'badge-low' : 'badge-in') }, m.role === 'superadmin' ? 'Super admin' : 'Admin')),
               e('td', null, e('span', { className:'badge ' + (m.active ? 'badge-in' : 'badge-out') }, m.active ? 'Activo' : 'Inactivo')),
               e('td', null, e('div', { className:'row-actions' },
