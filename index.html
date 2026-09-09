@@ -773,6 +773,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 (function(){
@@ -1481,6 +1482,166 @@
     return lines.join('\n');
   }
 
+  // Descarga generica de un archivo de texto en el navegador (Blob + <a download>).
+  // No depende de ninguna API externa, funciona en cualquier navegador normal.
+  function triggerTextDownload(filename, text){
+    var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+
+  // Cotizacion con formato de documento formal (como en un sistema de facturacion
+  // electronica): membrete, numero, fecha de vigencia, tabla de items y total.
+  function buildCotizacionPDF(cart, name, phone, code){
+    var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+    var pageWidth = doc.internal.pageSize.getWidth();
+    var marginX = 18;
+    var y = 20;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+    doc.text('FERRETERÍA 4 ESQUINAS', marginX, y);
+    y += 6;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    doc.text('Bahía Solano, Chocó · Tel. 310 634 4419', marginX, y);
+    y += 10;
+
+    doc.setDrawColor(200);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 8;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    doc.text('COTIZACIÓN', marginX, y);
+    doc.setFontSize(10);
+    doc.text('N.º ' + (code || '—'), pageWidth - marginX, y, { align: 'right' });
+    y += 6;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    doc.text('Fecha: ' + new Date().toLocaleDateString('es-CO'), marginX, y);
+    doc.text('Válida por 8 días', pageWidth - marginX, y, { align: 'right' });
+    y += 8;
+
+    if (name || phone) {
+      doc.setFont('helvetica', 'bold'); doc.text('Cliente', marginX, y); y += 5;
+      doc.setFont('helvetica', 'normal');
+      if (name) { doc.text(name, marginX, y); y += 5; }
+      if (phone) { doc.text('Tel. ' + phone, marginX, y); y += 5; }
+      y += 3;
+    }
+
+    var colProduct = marginX, colTotal = pageWidth - marginX, colPrice = colTotal - 36, colQty = colPrice - 30;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+    doc.text('Producto', colProduct, y);
+    doc.text('Cant.', colQty, y, { align: 'right' });
+    doc.text('Precio', colPrice, y, { align: 'right' });
+    doc.text('Subtotal', colTotal, y, { align: 'right' });
+    y += 2;
+    doc.setDrawColor(220);
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 5;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+    var subtotal = 0;
+    Object.keys(cart).filter(function(id){ return cart[id] > 0; }).forEach(function(id){
+      var p = window.PRODUCTS_BY_ID[id];
+      if (!p) return;
+      var lineTotal = p.price * cart[id];
+      subtotal += lineTotal;
+      if (y > 265) { doc.addPage(); y = 20; }
+      var nameLines = doc.splitTextToSize(p.name + ' (' + p.unit + ')', colQty - colProduct - 4);
+      doc.text(nameLines, colProduct, y);
+      doc.text(String(cart[id]), colQty, y, { align: 'right' });
+      doc.text(money(p.price), colPrice, y, { align: 'right' });
+      doc.text(money(lineTotal), colTotal, y, { align: 'right' });
+      y += Math.max(5, nameLines.length * 4.6);
+    });
+
+    y += 3;
+    doc.line(marginX, y, pageWidth - marginX, y);
+    y += 7;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('Total estimado: ' + money(subtotal), pageWidth - marginX, y, { align: 'right' });
+    y += 10;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    doc.setTextColor(120);
+    var footNote = doc.splitTextToSize('Precios de referencia, sujetos a disponibilidad y confirmación final en tienda o por WhatsApp al 310 634 4419.', pageWidth - marginX * 2);
+    doc.text(footNote, marginX, y);
+
+    return doc;
+  }
+
+  // Factura POS estilo ticket, con el codigo unico del pedido destacado para que
+  // el repartidor (o el personal en tienda) confirme y entregue el producto.
+  function buildFacturaPOSPDF(cart, name, phone, code){
+    var items = Object.keys(cart).filter(function(id){ return cart[id] > 0; });
+    var estHeight = 100 + items.length * 7;
+    var doc = new window.jspdf.jsPDF({ unit: 'mm', format: [80, Math.max(150, estHeight)] });
+    var w = doc.internal.pageSize.getWidth();
+    var marginX = 5;
+    var y = 10;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('FERRETERÍA 4 ESQUINAS', w / 2, y, { align: 'center' }); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+    doc.text('Bahía Solano, Chocó', w / 2, y, { align: 'center' }); y += 4;
+    doc.text('Tel. 310 634 4419', w / 2, y, { align: 'center' }); y += 6;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+    doc.text('FACTURA POS', w / 2, y, { align: 'center' }); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+    doc.text(new Date().toLocaleString('es-CO'), w / 2, y, { align: 'center' }); y += 6;
+
+    doc.setDrawColor(150);
+    doc.line(marginX, y, w - marginX, y); y += 5;
+
+    if (name || phone) {
+      doc.setFontSize(7.5);
+      if (name) { doc.text('Cliente: ' + name, marginX, y); y += 4; }
+      if (phone) { doc.text('Tel: ' + phone, marginX, y); y += 4; }
+      y += 2;
+    }
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    doc.text('Producto', marginX, y);
+    doc.text('Total', w - marginX, y, { align: 'right' });
+    y += 3;
+    doc.line(marginX, y, w - marginX, y); y += 4;
+
+    doc.setFont('helvetica', 'normal');
+    var subtotal = 0;
+    items.forEach(function(id){
+      var p = window.PRODUCTS_BY_ID[id];
+      if (!p) return;
+      var lineTotal = p.price * cart[id];
+      subtotal += lineTotal;
+      var labelLines = doc.splitTextToSize(cart[id] + 'x ' + p.name, w - marginX * 2 - 20);
+      doc.text(labelLines, marginX, y);
+      doc.text(money(lineTotal), w - marginX, y, { align: 'right' });
+      y += Math.max(4, labelLines.length * 3.6);
+    });
+
+    y += 2;
+    doc.line(marginX, y, w - marginX, y); y += 5;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.text('TOTAL: ' + money(subtotal), w - marginX, y, { align: 'right' }); y += 8;
+
+    doc.setDrawColor(0); doc.setLineWidth(0.4);
+    doc.roundedRect(marginX, y, w - marginX * 2, 16, 1.5, 1.5);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(code, w / 2, y + 7, { align: 'center' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
+    doc.text('Código de entrega — muéstralo al repartidor', w / 2, y + 12.5, { align: 'center' });
+    y += 22;
+
+    doc.setFontSize(7);
+    var foot = doc.splitTextToSize('Presenta este código para reclamar tu pedido en el punto físico o entregarlo al repartidor.', w - marginX * 2);
+    doc.text(foot, w / 2, y, { align: 'center' });
+
+    return doc;
+  }
+
   function CartDrawerApp(){
     var state = React.useState(window.CartStore.get());
     var cart = state[0], setCart = state[1];
@@ -1543,17 +1704,25 @@
       window.open('https://wa.me/' + window.WA_NUMBER + '?text=' + text, '_blank');
     }
 
+    function quoteIdToCode(quoteId){
+      return quoteId ? 'F4E-' + String(quoteId).padStart(6, '0') : 'TEMP-' + String(Date.now()).slice(-8);
+    }
+
+    // En modo cotizacion se descarga un PDF con formato de documento formal
+    // (como una cotizacion de un sistema de facturacion electronica). En modo
+    // venta se mantiene el detalle en texto plano.
     function downloadQuote(){
       if (!ids.length) return;
       saveQuoteToBackend();
+      if (mode === 'cotizacion') {
+        ensureQuoteSaved().then(function(quoteId){
+          var doc = buildCotizacionPDF(cart, name.trim(), phone.trim(), quoteIdToCode(quoteId));
+          doc.save('cotizacion-4esquinas.pdf');
+        });
+        return;
+      }
       var text = buildQuoteText(cart, name.trim(), phone.trim(), mode);
-      (async function(){
-        try {
-          var downloads = await claude.use('downloads');
-          if (!downloads) return;
-          await downloads.save({ filename: (mode === 'cotizacion' ? 'cotizacion' : 'venta') + '-4esquinas.txt', data: text });
-        } catch (err) { /* viewer declined or unavailable — no-op */ }
-      })();
+      triggerTextDownload('venta-4esquinas.txt', text);
     }
 
     // Codigo de seguridad: identifica el pedido para el repartidor o para que el
@@ -1564,14 +1733,36 @@
     var secCodeState = React.useState(null);
     var secCode = secCodeState[0], setSecCode = secCodeState[1];
 
-    function generateSecurityCode(){
-      if (!ids.length) return;
+    // Devuelve una promesa con el codigo, generandolo si aun no existe, para que
+    // el bloque en pantalla y la Factura POS siempre muestren el mismo codigo.
+    function ensureSecurityCode(){
+      if (secCode) return Promise.resolve(secCode);
       setSecStatus('loading');
-      ensureQuoteSaved().then(function(quoteId){
-        var code = quoteId ? 'F4E-' + String(quoteId).padStart(6, '0') : 'TEMP-' + String(Date.now()).slice(-8);
+      return ensureQuoteSaved().then(function(quoteId){
+        var code = quoteIdToCode(quoteId);
         setSecCode(code);
         setSecStatus('ready');
-      }).catch(function(){ setSecStatus('error'); });
+        return code;
+      }).catch(function(){ setSecStatus('error'); return null; });
+    }
+
+    function generateSecurityCode(){
+      if (!ids.length) return;
+      ensureSecurityCode();
+    }
+
+    var posStatusState = React.useState('idle'); // idle | loading | error
+    var posStatus = posStatusState[0], setPosStatus = posStatusState[1];
+
+    function downloadFacturaPOS(){
+      if (!ids.length) return;
+      setPosStatus('loading');
+      ensureSecurityCode().then(function(code){
+        if (!code) { setPosStatus('error'); return; }
+        var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), code);
+        doc.save('factura-pos-' + code + '.pdf');
+        setPosStatus('idle');
+      }).catch(function(){ setPosStatus('error'); });
     }
 
     var modeLabel = mode === 'cotizacion' ? 'cotización' : 'venta';
@@ -1616,11 +1807,16 @@
       ids.length > 0 && e('div', { className: 'quote-panel show' },
         mode === 'venta' && e('div', { className: 'security-block' },
           e('p', { className: 'quote-note' }, 'Genera un código de seguridad para identificar tu pedido: muéstralo al repartidor o en el punto físico al recogerlo.'),
-          e('button', {
-            className: 'btn security-btn', disabled: secStatus === 'loading', onClick: generateSecurityCode
-          }, secStatus === 'loading' ? 'Generando…' : 'Generar código de seguridad'),
+          e('div', { style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } },
+            e('button', {
+              className: 'btn security-btn', disabled: secStatus === 'loading', onClick: generateSecurityCode
+            }, secStatus === 'loading' ? 'Generando…' : 'Generar código de seguridad'),
+            e('button', {
+              className: 'btn btn-ghost security-btn', disabled: posStatus === 'loading', onClick: downloadFacturaPOS
+            }, posStatus === 'loading' ? 'Generando…' : 'Factura POS')),
           secStatus === 'ready' && secCode && e('p', { className: 'security-code' }, 'Código de seguridad: ' + secCode),
-          secStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar el código. Intenta de nuevo.')),
+          secStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar el código. Intenta de nuevo.'),
+          posStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar la factura POS. Intenta de nuevo.')),
         e('div', null,
           e('label', { htmlFor: 'qName' }, 'Tu nombre'),
           e('input', { type: 'text', id: 'qName', placeholder: 'Nombre completo', value: name, onChange: function(ev){ setName(ev.target.value); } })),
