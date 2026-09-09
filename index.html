@@ -1930,10 +1930,12 @@
         ensureSecurityCode().then(function(result){
           if (!result) { setPosStatus('error'); return; }
           // Mismo formato "F4E-Q-<id>" que ya genera y lee el escaner de Despacho
-          // y Bodega en el panel de admin — asi el QR de esta factura sincroniza
-          // directo con esa pantalla sin tocar nada mas. Sin backend (catalogo
-          // local o sin conexion) no hay id real que escanear, asi que se omite.
-          var qrText = result.quoteId ? ('F4E-Q-' + result.quoteId) : null;
+          // y Bodega en el panel de admin, para que el QR sincronice directo con
+          // esa pantalla. Si no hay id real del backend (sin conexion o catalogo
+          // local), el QR se genera igual mas usando el codigo de seguridad como
+          // texto — asi la factura SIEMPRE lleva un QR para verificar el pedido,
+          // aunque en ese caso no se pueda buscar en el panel de admin.
+          var qrText = 'F4E-Q-' + (result.quoteId || result.securityCode);
           var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), result.orderRef, result.securityCode, qrText, 'domicilio', address.trim());
           doc.save('factura-pos-' + result.securityCode + '.pdf');
           setPosStatus('idle');
@@ -1941,7 +1943,7 @@
       } else {
         ensureQuoteSaved().then(function(quoteId){
           var ref = quoteIdToCode(quoteId);
-          var qrText = quoteId ? ('F4E-Q-' + quoteId) : null;
+          var qrText = 'F4E-Q-' + (quoteId || ref);
           var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), ref, null, qrText, 'tienda', '');
           doc.save('factura-pos-' + ref + '.pdf');
           setPosStatus('idle');
