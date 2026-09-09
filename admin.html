@@ -55,6 +55,8 @@
   .btn-primary:hover{ background:var(--accent-bright); border-color:var(--accent-bright); }
   .btn-danger{ background:transparent; border-color:var(--danger); color:var(--danger); }
   .btn-danger:hover{ background:rgba(255,16,83,0.12); }
+  .btn-wa{ background:#00FF66; border-color:#00FF66; color:#052E0F; text-align:center; }
+  .btn-wa:hover{ background:#7CFFB0; border-color:#7CFFB0; }
   .btn:disabled{ opacity:0.5; cursor:not-allowed; }
 
   .wrap{ max-width:1100px; margin:0 auto; padding:2rem 1.6rem 4rem; }
@@ -115,6 +117,17 @@
   .movements-list{ font-size:0.85rem; max-height:260px; overflow:auto; }
   .movements-list div{ display:flex; justify-content:space-between; gap:0.5rem; padding:0.4rem 0; border-bottom:1px solid var(--line); }
   .movements-list div:last-child{ border-bottom:none; }
+
+  .qr-box{ display:flex; justify-content:center; padding:1rem; background:#fff; border-radius:10px; margin:0.8rem 0; }
+  #scannerRegion{ width:100%; border-radius:10px; overflow:hidden; }
+  .scan-manual{ display:flex; gap:0.5rem; margin-top:1rem; }
+  .scan-manual input{ flex:1; background:var(--surface-hi); border:1px solid var(--line); border-radius:8px; color:var(--ink); padding:0.6rem 0.8rem; }
+  .delivery-code-display{
+    font-family:'IBM Plex Mono', monospace; font-size:2rem; letter-spacing:0.2em; text-align:center;
+    color:var(--accent-bright); background:var(--surface-hi); border:1px solid var(--line); border-radius:10px;
+    padding:1rem; margin:1rem 0;
+  }
+  .badge-dispatch-pill{ display:inline-block; margin-left:0.5rem; }
 </style>
 </head>
 <body>
@@ -122,6 +135,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -671,10 +686,139 @@
     );
   }
 
+  var DISPATCH_LABELS = { pendiente:'Pendiente', preparando:'Preparando', despachado:'En camino', entregado:'Entregado' };
+
+  function toWaNumber(phone){
+    var digits = String(phone).replace(/\D/g, '');
+    if (digits.length === 10) digits = '57' + digits;
+    return digits;
+  }
+
+  function parseOrderCode(text){
+    var m = String(text).match(/(\d+)\s*$/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  function ScannerModal(props){
+    var scannerRef = React.useRef(null);
+    var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+    var _manual = React.useState(''); var manual = _manual[0], setManual = _manual[1];
+
+    React.useEffect(function(){
+      var html5Qr = new Html5Qrcode('scannerRegion');
+      scannerRef.current = html5Qr;
+      html5Qr.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: 220 },
+        function(decodedText){ props.onScanned(decodedText); },
+        function(){ /* frame sin codigo detectado, se ignora */ }
+      ).catch(function(e){
+        setErr('No se pudo abrir la cámara (' + e + '). Escribe el número de pedido abajo.');
+      });
+
+      return function(){
+        html5Qr.stop().catch(function(){}).finally(function(){ try { html5Qr.clear(); } catch(e){} });
+      };
+    }, []);
+
+    return e('div', { className:'modal-overlay', onClick:function(ev){ if (ev.target === ev.currentTarget) props.onClose(); } },
+      e('div', { className:'modal', style:{ maxWidth:'420px' } },
+        e('div', { className:'modal-head' },
+          e('h2', { style:{ fontSize:'1.1rem' } }, 'Escanear pedido'),
+          e('button', { className:'modal-close', onClick:props.onClose }, '×')
+        ),
+        e('div', { id:'scannerRegion' }),
+        err ? e('div', { className:'error-msg' }, err) : null,
+        e('div', { className:'scan-manual' },
+          e('input', { placeholder:'o escribe el # de pedido', value:manual, onChange:function(ev){ setManual(ev.target.value); } }),
+          e('button', { className:'btn btn-primary', onClick:function(){ if (manual.trim()) props.onScanned(manual.trim()); } }, 'Buscar')
+        )
+      )
+    );
+  }
+
+  function QrModal(props){
+    var boxRef = React.useRef(null);
+    React.useEffect(function(){
+      if (boxRef.current) {
+        boxRef.current.innerHTML = '';
+        new QRCode(boxRef.current, { text: 'F4E-Q-' + props.quote.id, width: 220, height: 220 });
+      }
+    }, []);
+    return e('div', { className:'modal-overlay', onClick:function(ev){ if (ev.target === ev.currentTarget) props.onClose(); } },
+      e('div', { className:'modal', style:{ maxWidth:'340px', textAlign:'center' } },
+        e('div', { className:'modal-head' },
+          e('h2', { style:{ fontSize:'1.05rem' } }, 'Pedido #' + props.quote.id),
+          e('button', { className:'modal-close', onClick:props.onClose }, '×')
+        ),
+        e('p', { className:'hint' }, props.quote.customer_name),
+        e('div', { className:'qr-box' }, e('div', { ref:boxRef })),
+        e('p', { className:'hint' }, 'Imprime o pega este código en el paquete para escanearlo despues.')
+      )
+    );
+  }
+
+  function DeliveryCodeModal(props){
+    var waText = 'Hola ' + props.quote.customer_name + ', tu pedido en Ferretería 4 Esquinas ya va en camino. Cuando el repartidor llegue, dale este código de seguridad para confirmar la entrega: ' + props.code + '. ¡Gracias por tu compra!';
+    var waUrl = 'https://wa.me/' + toWaNumber(props.quote.customer_phone) + '?text=' + encodeURIComponent(waText);
+    return e('div', { className:'modal-overlay' },
+      e('div', { className:'modal', style:{ maxWidth:'380px', textAlign:'center' } },
+        e('div', { className:'modal-head' },
+          e('h2', { style:{ fontSize:'1.05rem' } }, 'Entrega iniciada'),
+          e('button', { className:'modal-close', onClick:props.onClose }, '×')
+        ),
+        e('p', { className:'hint' }, 'Código de seguridad para ' + props.quote.customer_name + ':'),
+        e('div', { className:'delivery-code-display' }, props.code),
+        e('a', {
+          className:'btn btn-wa', style:{ width:'100%', display:'block', textDecoration:'none' },
+          href: waUrl, target:'_blank', rel:'noopener', onClick:props.onClose
+        }, 'Enviar por WhatsApp'),
+        e('p', { className:'hint', style:{ marginTop:'0.8rem' } }, 'El cliente debe dar este código al repartidor para poder finalizar la entrega.')
+      )
+    );
+  }
+
+  function FinishDeliveryModal(props){
+    var _code = React.useState(''); var code = _code[0], setCode = _code[1];
+    var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+    var _loading = React.useState(false); var loading = _loading[0], setLoading = _loading[1];
+
+    function submit(ev){
+      ev.preventDefault();
+      setLoading(true); setErr('');
+      apiFetch('/api/quotes/' + props.quote.id + '/finish-delivery', props.token, { method:'POST', body: JSON.stringify({ code: code }) })
+        .then(function(){ props.onDone(); })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setLoading(false); });
+    }
+
+    return e('div', { className:'modal-overlay', onClick:function(ev){ if (ev.target === ev.currentTarget) props.onClose(); } },
+      e('div', { className:'modal', style:{ maxWidth:'360px' } },
+        e('div', { className:'modal-head' },
+          e('h2', { style:{ fontSize:'1.05rem' } }, 'Finalizar entrega'),
+          e('button', { className:'modal-close', onClick:props.onClose }, '×')
+        ),
+        e('p', { className:'hint' }, 'Pídele a ' + props.quote.customer_name + ' el código de seguridad que le llegó por WhatsApp.'),
+        e('form', { onSubmit: submit },
+          e('div', { className:'field' },
+            e('label', null, 'Código'),
+            e('input', { value:code, onChange:function(ev){ setCode(ev.target.value); }, required:true, maxLength:6, style:{ textAlign:'center', fontSize:'1.3rem', letterSpacing:'0.2em' } })
+          ),
+          err ? e('div', { className:'error-msg' }, err) : null,
+          e('button', { type:'submit', className:'btn btn-primary', style:{ width:'100%' }, disabled:loading }, loading ? 'Verificando…' : 'Confirmar entrega')
+        )
+      )
+    );
+  }
+
   function DespachosView(props){
     var _quotes = React.useState([]); var quotes = _quotes[0], setQuotes = _quotes[1];
     var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+    var _scannerOpen = React.useState(false); var scannerOpen = _scannerOpen[0], setScannerOpen = _scannerOpen[1];
+    var _qrQuote = React.useState(null); var qrQuote = _qrQuote[0], setQrQuote = _qrQuote[1];
+    var _finishQuote = React.useState(null); var finishQuote = _finishQuote[0], setFinishQuote = _finishQuote[1];
+    var _deliveryResult = React.useState(null); var deliveryResult = _deliveryResult[0], setDeliveryResult = _deliveryResult[1];
 
     function load(){
       setLoading(true);
@@ -685,21 +829,52 @@
     }
     React.useEffect(load, []);
 
-    function changeDispatch(q, status){
+    function changePrepStatus(q, status){
       apiFetch('/api/quotes/' + q.id + '/dispatch-status', props.token, { method:'PUT', body: JSON.stringify({ dispatch_status: status }) })
         .then(load)
         .catch(function(e){ setErr(e.message); });
     }
 
+    function startDelivery(q){
+      setErr('');
+      apiFetch('/api/quotes/' + q.id + '/start-delivery', props.token, { method:'POST' })
+        .then(function(data){
+          setDeliveryResult({ quote: data.quote, code: data.delivery_code });
+          load();
+        })
+        .catch(function(e){ setErr(e.message); });
+    }
+
+    function handleScanned(text){
+      setScannerOpen(false);
+      var id = parseOrderCode(text);
+      var q = quotes.find(function(x){ return x.id === id; });
+      if (!q) { setErr('No se encontró ningún pedido confirmado con ese número (#' + (id || text) + ').'); return; }
+      setErr('');
+      if (q.dispatch_status === 'pendiente' || q.dispatch_status === 'preparando') {
+        if (window.confirm('¿Iniciar la entrega del pedido de ' + q.customer_name + '?')) startDelivery(q);
+      } else if (q.dispatch_status === 'despachado') {
+        setFinishQuote(q);
+      } else {
+        setErr('El pedido de ' + q.customer_name + ' ya fue entregado.');
+      }
+    }
+
     return e('div', null,
-      e('p', { className:'hint', style:{ marginBottom:'1rem' } }, 'Solo se muestran las cotizaciones ya confirmadas por el cliente (listas para preparar/despachar).'),
-      err ? e('div', { className:'error-msg' }, err) : null,
+      e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'0.6rem' } },
+        e('p', { className:'hint', style:{ margin:0 } }, 'Solo se muestran las cotizaciones ya confirmadas por el cliente.'),
+        e('button', { className:'btn btn-primary', onClick:function(){ setErr(''); setScannerOpen(true); } }, '📷 Escanear pedido')
+      ),
+      err ? e('div', { className:'error-msg', style:{ marginBottom:'1rem' } }, err) : null,
       loading ? e('p', { className:'hint' }, 'Cargando…') :
       quotes.length === 0 ? e('div', { className:'empty' }, 'No hay pedidos confirmados pendientes de despacho.') :
       quotes.map(function(q){
         return e('div', { key:q.id, className:'quote-card' },
           e('div', { className:'quote-head' },
-            e('div', null, e('span', { className:'name' }, q.customer_name), ' — ', e('span', { className:'mono' }, q.customer_phone)),
+            e('div', null,
+              e('span', { className:'name' }, '#' + q.id + ' — ' + q.customer_name), ' — ', e('span', { className:'mono' }, q.customer_phone),
+              e('span', { className:'badge badge-dispatch-' + q.dispatch_status + ' badge-dispatch-pill' }, DISPATCH_LABELS[q.dispatch_status])
+            ),
             e('span', { className:'hint' }, new Date(q.created_at).toLocaleString('es-CO'))
           ),
           e('div', { className:'quote-items' }, q.items.map(function(it){
@@ -708,18 +883,25 @@
           e('div', { className:'quote-foot' },
             e('span', { className:'mono', style:{ fontWeight:700 } }, 'Total: ' + money(q.subtotal)),
             q.dispatch_updated_at ? e('span', { className:'hint' }, 'Actualizado: ' + new Date(q.dispatch_updated_at).toLocaleString('es-CO')) : null,
-            e('select', {
-              className:'mono', value:q.dispatch_status, onChange:function(ev){ changeDispatch(q, ev.target.value); },
-              style:{ background:'var(--surface-hi)', color:'var(--ink)', border:'1px solid var(--line)', borderRadius:'6px', padding:'0.3rem 0.5rem' }
-            },
-              e('option', { value:'pendiente' }, 'Pendiente'),
-              e('option', { value:'preparando' }, 'Preparando'),
-              e('option', { value:'despachado' }, 'Despachado'),
-              e('option', { value:'entregado' }, 'Entregado')
+            e('div', { className:'row-actions' },
+              e('button', { className:'btn', onClick:function(){ setQrQuote(q); } }, 'Ver QR'),
+              (q.dispatch_status === 'pendiente' || q.dispatch_status === 'preparando') && e('select', {
+                className:'mono', value:q.dispatch_status, onChange:function(ev){ changePrepStatus(q, ev.target.value); },
+                style:{ background:'var(--surface-hi)', color:'var(--ink)', border:'1px solid var(--line)', borderRadius:'6px', padding:'0.3rem 0.5rem' }
+              },
+                e('option', { value:'pendiente' }, 'Pendiente'),
+                e('option', { value:'preparando' }, 'Preparando')
+              ),
+              (q.dispatch_status === 'pendiente' || q.dispatch_status === 'preparando') && e('button', { className:'btn btn-primary', onClick:function(){ startDelivery(q); } }, 'Iniciar entrega'),
+              q.dispatch_status === 'despachado' && e('button', { className:'btn btn-primary', onClick:function(){ setFinishQuote(q); } }, 'Finalizar entrega')
             )
           )
         );
-      })
+      }),
+      scannerOpen ? e(ScannerModal, { onScanned:handleScanned, onClose:function(){ setScannerOpen(false); } }) : null,
+      qrQuote ? e(QrModal, { quote:qrQuote, onClose:function(){ setQrQuote(null); } }) : null,
+      finishQuote ? e(FinishDeliveryModal, { token:props.token, quote:finishQuote, onClose:function(){ setFinishQuote(null); }, onDone:function(){ setFinishQuote(null); load(); } }) : null,
+      deliveryResult ? e(DeliveryCodeModal, { quote:deliveryResult.quote, code:deliveryResult.code, onClose:function(){ setDeliveryResult(null); } }) : null
     );
   }
 
