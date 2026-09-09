@@ -983,6 +983,19 @@
     try { localStorage.setItem(DELIVERY_LOG_KEY, JSON.stringify(list.slice(0, 200))); } catch (err) { /* storage lleno — se ignora */ }
   }
 
+  // Pedidos ya entregados que se "eliminaron" de la lista de Despachos: el
+  // backend no tiene endpoint para borrar cotizaciones, asi que esto solo los
+  // oculta en este navegador/dispositivo — el registro real sigue existiendo.
+  var DISMISSED_DISPATCH_KEY = 'f4e_dispatch_dismissed_v1';
+  function loadDismissedDispatches(){
+    try { return JSON.parse(localStorage.getItem(DISMISSED_DISPATCH_KEY)) || []; } catch (err) { return []; }
+  }
+  function dismissDispatch(quoteId){
+    var list = loadDismissedDispatches();
+    if (list.indexOf(quoteId) === -1) list.push(quoteId);
+    try { localStorage.setItem(DISMISSED_DISPATCH_KEY, JSON.stringify(list)); } catch (err) {}
+  }
+
   function ScannerModal(props){
     var scannerRef = React.useRef(null);
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
@@ -1214,6 +1227,13 @@
     var _finishPrefillCode = React.useState(null); var finishPrefillCode = _finishPrefillCode[0], setFinishPrefillCode = _finishPrefillCode[1];
     var _deliveryResult = React.useState(null); var deliveryResult = _deliveryResult[0], setDeliveryResult = _deliveryResult[1];
     var _feedback = React.useState(null); var feedback = _feedback[0], setFeedback = _feedback[1];
+    var _dismissed = React.useState(loadDismissedDispatches()); var dismissed = _dismissed[0], setDismissed = _dismissed[1];
+
+    function dismiss(q){
+      if (!window.confirm('¿Quitar el pedido #' + q.id + ' — ' + q.customer_name + ' de esta lista? Ya no aparecerá aquí, pero el registro se conserva en el sistema.')) return;
+      dismissDispatch(q.id);
+      setDismissed(loadDismissedDispatches());
+    }
 
     function load(){
       setLoading(true);
@@ -1287,15 +1307,20 @@
       }
     }
 
+    var visibleQuotes = quotes.filter(function(q){ return dismissed.indexOf(q.id) === -1; });
+    var hiddenCount = quotes.length - visibleQuotes.length;
+
     return e('div', null,
       e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem', flexWrap:'wrap', gap:'0.6rem' } },
-        e('p', { className:'hint', style:{ margin:0 } }, 'Solo se muestran las cotizaciones ya confirmadas por el cliente.'),
+        e('p', { className:'hint', style:{ margin:0 } },
+          'Solo se muestran las cotizaciones ya confirmadas por el cliente.' +
+          (hiddenCount > 0 ? ' (' + hiddenCount + ' entregado' + (hiddenCount === 1 ? '' : 's') + ' eliminado' + (hiddenCount === 1 ? '' : 's') + ' de esta lista.)' : '')),
         e('button', { className:'btn btn-primary', onClick:function(){ setErr(''); setScannerOpen(true); } }, '📷 Escanear pedido')
       ),
       err ? e('div', { className:'error-msg', style:{ marginBottom:'1rem' } }, err) : null,
       loading ? e('p', { className:'hint' }, 'Cargando…') :
-      quotes.length === 0 ? e('div', { className:'empty' }, 'No hay pedidos confirmados pendientes de despacho.') :
-      quotes.map(function(q){
+      visibleQuotes.length === 0 ? e('div', { className:'empty' }, 'No hay pedidos confirmados pendientes de despacho.') :
+      visibleQuotes.map(function(q){
         return e('div', { key:q.id, className:'quote-card' },
           e('div', { className:'quote-head' },
             e('div', null,
@@ -1322,7 +1347,10 @@
               (q.dispatch_status === 'pendiente' || q.dispatch_status === 'preparando') && e('button', { className:'btn btn-primary', onClick:function(){ startDelivery(q); } }, 'Iniciar entrega'),
               q.dispatch_status === 'despachado' && e('button', {
                 className:'btn btn-primary', onClick:function(){ setFinishPrefillCode(null); setFinishQuote(q); }
-              }, 'Finalizar entrega')
+              }, 'Finalizar entrega'),
+              q.dispatch_status === 'entregado' && e('button', {
+                className:'btn btn-danger', onClick:function(){ dismiss(q); }
+              }, 'Eliminar de la lista')
             )
           )
         );
