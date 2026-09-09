@@ -1524,166 +1524,223 @@
     setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
   }
 
-  // Cotizacion con formato de documento formal (como en un sistema de facturacion
-  // electronica): membrete, numero, fecha de vigencia, tabla de items y total.
-  function buildCotizacionPDF(cart, name, phone, code){
-    var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
-    var pageWidth = doc.internal.pageSize.getWidth();
-    var marginX = 18;
-    var y = 20;
+  // Datos reales del titular del negocio (los mismos que ya usa la factura
+  // electronica real que emite Alegra), para que los documentos que genera el
+  // sitio se vean consistentes con esa.
+  var BIZ_NAME = 'Mary Vidal Rojas';
+  var BIZ_NIT = 'NIT 26.366.494-0';
+  var BIZ_ADDRESS = 'Barrio Panquiaco, Bahía Solano, Chocó';
+  var BIZ_CONTACT = 'Ferrecuatroesquina@gmail.com · Tel. 310 634 4419';
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-    doc.text('FERRETERÍA 4 ESQUINAS', marginX, y);
-    y += 6;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-    doc.text('Bahía Solano, Chocó · Tel. 310 634 4419', marginX, y);
-    y += 10;
+  // Lee el logo ya cargado en el pie de pagina de la propia web (mismo PNG en
+  // todo el sitio) para poder incrustarlo en los PDF sin duplicar el archivo.
+  function getLogoInfo(){
+    var img = document.getElementById('footLogo');
+    if (!img || !img.src || !img.naturalWidth) return null;
+    return { src: img.src, w: img.naturalWidth, h: img.naturalHeight };
+  }
 
-    doc.setDrawColor(200);
-    doc.line(marginX, y, pageWidth - marginX, y);
-    y += 8;
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-    doc.text('COTIZACIÓN', marginX, y);
-    doc.setFontSize(10);
-    doc.text('N.º ' + (code || '—'), pageWidth - marginX, y, { align: 'right' });
-    y += 6;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-    doc.text('Fecha: ' + new Date().toLocaleDateString('es-CO'), marginX, y);
-    doc.text('Válida por 8 días', pageWidth - marginX, y, { align: 'right' });
-    y += 8;
-
-    if (name || phone) {
-      doc.setFont('helvetica', 'bold'); doc.text('Cliente', marginX, y); y += 5;
-      doc.setFont('helvetica', 'normal');
-      if (name) { doc.text(name, marginX, y); y += 5; }
-      if (phone) { doc.text('Tel. ' + phone, marginX, y); y += 5; }
-      y += 3;
+  // Encabezado compartido por Cotizacion y Factura POS: logo + datos del
+  // negocio a la izquierda, tipo y numero de documento a la derecha.
+  function drawDocHeader(doc, opts){
+    var marginX = opts.marginX, pageWidth = opts.pageWidth, y = 16;
+    var logo = getLogoInfo();
+    var textX = marginX;
+    if (logo) {
+      var logoW = 20, logoH = logoW * (logo.h / logo.w);
+      doc.addImage(logo.src, 'PNG', marginX, y - 11, logoW, logoH);
+      textX = marginX + logoW + 5;
     }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+    doc.text(BIZ_NAME, textX, y - 5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text(BIZ_NIT, textX, y);
+    doc.text(BIZ_ADDRESS, textX, y + 4.5);
+    doc.text(BIZ_CONTACT, textX, y + 9);
 
-    var colProduct = marginX, colTotal = pageWidth - marginX, colPrice = colTotal - 36, colQty = colPrice - 30;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
-    doc.text('Producto', colProduct, y);
-    doc.text('Cant.', colQty, y, { align: 'right' });
-    doc.text('Precio', colPrice, y, { align: 'right' });
-    doc.text('Subtotal', colTotal, y, { align: 'right' });
-    y += 2;
-    doc.setDrawColor(220);
-    doc.line(marginX, y, pageWidth - marginX, y);
-    y += 5;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text(opts.title, pageWidth - marginX, y - 5, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text('No. ' + (opts.number || '—'), pageWidth - marginX, y, { align: 'right' });
+    if (opts.extraLine) doc.text(opts.extraLine, pageWidth - marginX, y + 4.5, { align: 'right' });
 
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-    var subtotal = 0;
+    var bottomY = y + 14;
+    doc.setDrawColor(180);
+    doc.line(marginX, bottomY, pageWidth - marginX, bottomY);
+    return bottomY + 7;
+  }
+
+  // Cuadro con los datos del cliente y una fecha/referencia a la derecha,
+  // igual que el bloque SEÑOR(ES)/DIRECCIÓN/TELÉFONO de una factura formal.
+  function drawCustomerBox(doc, opts){
+    var marginX = opts.marginX, pageWidth = opts.pageWidth, y = opts.y;
+    var boxW = pageWidth - marginX * 2, boxH = 16;
+    var midX = marginX + boxW * 0.62;
+    doc.setDrawColor(180); doc.setLineWidth(0.3);
+    doc.rect(marginX, y, boxW, boxH);
+    doc.line(midX, y, midX, y + boxH);
+    doc.line(marginX, y + boxH / 2, midX, y + boxH / 2);
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    doc.text('CLIENTE', marginX + 2, y + 5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    doc.text(opts.name || 'Consumidor final', marginX + 24, y + 5);
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    doc.text('TELÉFONO', marginX + 2, y + boxH - 3.5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    doc.text(opts.phone || '—', marginX + 24, y + boxH - 3.5);
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    doc.text(opts.rightLabel, midX + 3, y + 5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    doc.text(String(opts.rightValue), midX + 3, y + boxH - 3.5);
+
+    return y + boxH + 8;
+  }
+
+  // Tabla de items con recuadro, encabezado sombreado y una fila por producto —
+  // sin columnas de impuesto/descuento, porque esos valores solo los calcula el
+  // sistema contable real (Alegra) al emitir la factura electronica.
+  function drawItemsTable(doc, cart, opts){
+    var marginX = opts.marginX, pageWidth = opts.pageWidth, y = opts.y;
+    var colNum = marginX, colProduct = marginX + 10, colUnit = pageWidth - marginX - 70,
+        colPrice = pageWidth - marginX - 50, colQty = pageWidth - marginX - 22, colTotal = pageWidth - marginX;
+    var headH = 7;
+
+    doc.setFillColor(232, 232, 232);
+    doc.rect(marginX, y, pageWidth - marginX * 2, headH, 'F');
+    doc.setDrawColor(180);
+    doc.rect(marginX, y, pageWidth - marginX * 2, headH);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+    doc.text('#', colNum + 2, y + headH - 2.3);
+    doc.text('Producto', colProduct, y + headH - 2.3);
+    doc.text('Unidad', colUnit, y + headH - 2.3, { align: 'right' });
+    doc.text('Precio', colPrice, y + headH - 2.3, { align: 'right' });
+    doc.text('Cant.', colQty, y + headH - 2.3, { align: 'right' });
+    doc.text('Subtotal', colTotal - 1, y + headH - 2.3, { align: 'right' });
+    y += headH;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    var subtotal = 0, n = 0;
     Object.keys(cart).filter(function(id){ return cart[id] > 0; }).forEach(function(id){
       var p = window.PRODUCTS_BY_ID[id];
       if (!p) return;
+      n++;
       var lineTotal = p.price * cart[id];
       subtotal += lineTotal;
-      if (y > 265) { doc.addPage(); y = 20; }
-      var nameLines = doc.splitTextToSize(p.name + ' (' + p.unit + ')', colQty - colProduct - 4);
-      doc.text(nameLines, colProduct, y);
-      doc.text(String(cart[id]), colQty, y, { align: 'right' });
-      doc.text(money(p.price), colPrice, y, { align: 'right' });
-      doc.text(money(lineTotal), colTotal, y, { align: 'right' });
-      y += Math.max(5, nameLines.length * 4.6);
+      var nameLines = doc.splitTextToSize(p.name, colUnit - colProduct - 6);
+      var rowH = Math.max(7, nameLines.length * 4 + 3);
+      if (y + rowH > 275) { doc.addPage(); y = 20; }
+      doc.rect(marginX, y, pageWidth - marginX * 2, rowH);
+      doc.text(String(n), colNum + 2, y + 5);
+      doc.text(nameLines, colProduct, y + 5);
+      doc.text(p.unit, colUnit, y + 5, { align: 'right' });
+      doc.text(money(p.price), colPrice, y + 5, { align: 'right' });
+      doc.text(String(cart[id]), colQty, y + 5, { align: 'right' });
+      doc.text(money(lineTotal), colTotal - 1, y + 5, { align: 'right' });
+      y += rowH;
     });
 
-    y += 3;
-    doc.line(marginX, y, pageWidth - marginX, y);
+    return { y: y + 6, subtotal: subtotal };
+  }
+
+  // Caja de totales alineada a la derecha, con el total resaltado.
+  function drawTotalsBox(doc, opts){
+    var marginX = opts.marginX, pageWidth = opts.pageWidth, y = opts.y;
+    var boxW = 70, boxX = pageWidth - marginX - boxW;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text('Subtotal', boxX, y + 5);
+    doc.text(money(opts.subtotal), pageWidth - marginX, y + 5, { align: 'right' });
     y += 7;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Total estimado: ' + money(subtotal), pageWidth - marginX, y, { align: 'right' });
-    y += 10;
+    doc.setFillColor(232, 244, 255);
+    doc.rect(boxX - 2, y, boxW + 2, 8, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+    doc.text('TOTAL', boxX, y + 5.5);
+    doc.text(money(opts.subtotal), pageWidth - marginX, y + 5.5, { align: 'right' });
+    return y + 16;
+  }
 
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  // Lineas de firma para dejar constancia de quien elaboro y quien recibio el
+  // documento (util cuando el cliente confirma en persona).
+  function drawSignatureLines(doc, opts){
+    var marginX = opts.marginX, pageWidth = opts.pageWidth, y = opts.y;
+    var colW = (pageWidth - marginX * 2 - 10) / 2;
+    doc.setDrawColor(150);
+    doc.line(marginX, y, marginX + colW, y);
+    doc.line(marginX + colW + 10, y, pageWidth - marginX, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+    doc.text(opts.leftLabel, marginX + colW / 2, y + 4, { align: 'center' });
+    doc.text(opts.rightLabel, marginX + colW + 10 + colW / 2, y + 4, { align: 'center' });
+    return y + 12;
+  }
+
+  // Aviso legal breve: deja explicito que esto NO es una factura electronica
+  // DIAN (esa la emite Alegra por separado), para no generar confusion.
+  function drawFooterDisclaimer(doc, opts){
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
     doc.setTextColor(120);
-    var footNote = doc.splitTextToSize('Precios de referencia, sujetos a disponibilidad y confirmación final en tienda o por WhatsApp al 310 634 4419.', pageWidth - marginX * 2);
-    doc.text(footNote, marginX, y);
+    var lines = doc.splitTextToSize(opts.text, opts.pageWidth - opts.marginX * 2);
+    doc.text(lines, opts.pageWidth / 2, opts.y, { align: 'center' });
+    doc.setTextColor(0);
+    return opts.y + lines.length * 3.2 + 4;
+  }
 
+  // Cotizacion con formato de documento formal: membrete, numero, cuadro de
+  // cliente, tabla de items y total.
+  function buildCotizacionPDF(cart, name, phone, code){
+    var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+    var pageWidth = doc.internal.pageSize.getWidth();
+    var marginX = 15;
+    var y = drawDocHeader(doc, { title: 'COTIZACIÓN', number: code, pageWidth: pageWidth, marginX: marginX, extraLine: 'Válida por 8 días' });
+    y = drawCustomerBox(doc, { name: name, phone: phone, pageWidth: pageWidth, marginX: marginX, y: y, rightLabel: 'FECHA', rightValue: new Date().toLocaleDateString('es-CO') });
+    var table = drawItemsTable(doc, cart, { pageWidth: pageWidth, marginX: marginX, y: y });
+    y = drawTotalsBox(doc, { subtotal: table.subtotal, pageWidth: pageWidth, marginX: marginX, y: table.y });
+    y = drawSignatureLines(doc, { pageWidth: pageWidth, marginX: marginX, y: y, leftLabel: 'ELABORADO POR', rightLabel: 'ACEPTADA, FIRMA Y/O SELLO Y FECHA' });
+    drawFooterDisclaimer(doc, {
+      pageWidth: pageWidth, marginX: marginX, y: y,
+      text: 'Cotización de referencia. Precios sujetos a disponibilidad y confirmación final en tienda o por WhatsApp al 310 634 4419. Este documento no constituye una factura electrónica DIAN.'
+    });
     return doc;
   }
 
-  // Factura POS estilo ticket, con el codigo de seguridad aleatorio destacado para
-  // que el repartidor (o el personal en tienda) confirme y entregue el producto,
-  // mas un QR (formato "F4E-Q-<id>") que el escaner de "Despacho y Bodega" en el
-  // panel de admin ya sabe leer, para sincronizar la factura con esa pantalla.
-  // "orderRef" es el numero de pedido F4E-XXXXXX (buscable en el panel de admin);
-  // "securityCode" es el codigo aleatorio vinculado a esta misma factura;
-  // "qrText" es el texto a codificar en el QR (null si no hay pedido real en el backend).
+  // Factura POS con el mismo formato formal, mas el codigo de seguridad
+  // aleatorio y un QR (formato "F4E-Q-<id>") que el escaner de "Despacho y
+  // Bodega" en el panel de admin ya sabe leer, para sincronizar la factura con
+  // esa pantalla. "orderRef" es el numero de pedido F4E-XXXXXX (buscable en el
+  // panel de admin); "securityCode" es el codigo aleatorio vinculado a esta
+  // misma factura; "qrText" es el texto del QR (null sin pedido real en el backend).
   function buildFacturaPOSPDF(cart, name, phone, orderRef, securityCode, qrText){
-    var items = Object.keys(cart).filter(function(id){ return cart[id] > 0; });
-    var qrImg = qrCodeDataURL(qrText, 200);
-    var estHeight = 100 + items.length * 7 + (qrImg ? 40 : 0);
-    var doc = new window.jspdf.jsPDF({ unit: 'mm', format: [80, Math.max(150, estHeight)] });
-    var w = doc.internal.pageSize.getWidth();
-    var marginX = 5;
-    var y = 10;
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('FERRETERÍA 4 ESQUINAS', w / 2, y, { align: 'center' }); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-    doc.text('Bahía Solano, Chocó', w / 2, y, { align: 'center' }); y += 4;
-    doc.text('Tel. 310 634 4419', w / 2, y, { align: 'center' }); y += 6;
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
-    doc.text('FACTURA POS', w / 2, y, { align: 'center' }); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-    doc.text('Pedido N.º ' + (orderRef || '—'), w / 2, y, { align: 'center' }); y += 4;
-    doc.text(new Date().toLocaleString('es-CO'), w / 2, y, { align: 'center' }); y += 6;
-
-    doc.setDrawColor(150);
-    doc.line(marginX, y, w - marginX, y); y += 5;
-
-    if (name || phone) {
-      doc.setFontSize(7.5);
-      if (name) { doc.text('Cliente: ' + name, marginX, y); y += 4; }
-      if (phone) { doc.text('Tel: ' + phone, marginX, y); y += 4; }
-      y += 2;
-    }
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
-    doc.text('Producto', marginX, y);
-    doc.text('Total', w - marginX, y, { align: 'right' });
-    y += 3;
-    doc.line(marginX, y, w - marginX, y); y += 4;
-
-    doc.setFont('helvetica', 'normal');
-    var subtotal = 0;
-    items.forEach(function(id){
-      var p = window.PRODUCTS_BY_ID[id];
-      if (!p) return;
-      var lineTotal = p.price * cart[id];
-      subtotal += lineTotal;
-      var labelLines = doc.splitTextToSize(cart[id] + 'x ' + p.name, w - marginX * 2 - 20);
-      doc.text(labelLines, marginX, y);
-      doc.text(money(lineTotal), w - marginX, y, { align: 'right' });
-      y += Math.max(4, labelLines.length * 3.6);
+    var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+    var pageWidth = doc.internal.pageSize.getWidth();
+    var marginX = 15;
+    var y = drawDocHeader(doc, { title: 'FACTURA POS', number: orderRef, pageWidth: pageWidth, marginX: marginX, extraLine: null });
+    y = drawCustomerBox(doc, { name: name, phone: phone, pageWidth: pageWidth, marginX: marginX, y: y, rightLabel: 'FECHA', rightValue: new Date().toLocaleString('es-CO') });
+    var table = drawItemsTable(doc, cart, { pageWidth: pageWidth, marginX: marginX, y: y });
+    y = drawTotalsBox(doc, { subtotal: table.subtotal, pageWidth: pageWidth, marginX: marginX, y: table.y });
+    y = drawSignatureLines(doc, { pageWidth: pageWidth, marginX: marginX, y: y, leftLabel: 'ELABORADO POR', rightLabel: 'RECIBIDO, FIRMA Y/O SELLO Y FECHA' });
+    y = drawFooterDisclaimer(doc, {
+      pageWidth: pageWidth, marginX: marginX, y: y,
+      text: 'Comprobante de venta / control interno. No constituye una factura electrónica DIAN — la factura electrónica oficial se emite por separado.'
     });
 
-    y += 2;
-    doc.line(marginX, y, w - marginX, y); y += 5;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.text('TOTAL: ' + money(subtotal), w - marginX, y, { align: 'right' }); y += 8;
-
+    y += 6;
     doc.setDrawColor(0); doc.setLineWidth(0.4);
-    doc.roundedRect(marginX, y, w - marginX * 2, 16, 1.5, 1.5);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    doc.text(securityCode, w / 2, y + 7.5, { align: 'center' });
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
-    doc.text('Código de seguridad — muéstralo al repartidor', w / 2, y + 12.5, { align: 'center' });
-    y += 22;
+    var boxH = 18;
+    doc.roundedRect(marginX, y, pageWidth - marginX * 2, boxH, 2, 2);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+    doc.text(securityCode, pageWidth / 2, y + 9, { align: 'center' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text('Código de seguridad — muéstralo al repartidor o en el punto físico', pageWidth / 2, y + 15, { align: 'center' });
+    y += boxH + 8;
 
-    doc.setFontSize(7);
-    var foot = doc.splitTextToSize('Presenta este código para reclamar tu pedido en el punto físico o entregarlo al repartidor.', w - marginX * 2);
-    doc.text(foot, w / 2, y, { align: 'center' });
-    y += foot.length * 3.2 + 4;
-
+    var qrImg = qrCodeDataURL(qrText, 200);
     if (qrImg) {
-      var qrSize = 28;
-      doc.addImage(qrImg, 'PNG', (w - qrSize) / 2, y, qrSize, qrSize);
+      var qrSize = 30;
+      doc.addImage(qrImg, 'PNG', (pageWidth - qrSize) / 2, y, qrSize, qrSize);
       y += qrSize + 4;
-      doc.setFontSize(6.5);
-      doc.text('Escanéalo en Despacho y Bodega para sincronizar el pedido', w / 2, y, { align: 'center' });
+      doc.setFontSize(7.5);
+      doc.text('Escanéalo en Despacho y Bodega para sincronizar el pedido', pageWidth / 2, y, { align: 'center' });
     }
 
     return doc;
