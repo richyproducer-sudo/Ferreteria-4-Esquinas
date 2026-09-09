@@ -755,6 +755,29 @@
 
   var JOB_TITLE_PRESETS = ['Dueño', 'Encargado de logística', 'Despacho y bodega', 'Cajero', 'Empleado'];
 
+  // Que pestañas del panel puede ver cada cargo (Rol / nivel de acceso). El
+  // cargo ("job_title") es el mismo campo que ya se elige al crear/editar un
+  // empleado en "Equipo" — aqui se usa ademas para decidir el acceso.
+  var ALL_ADMIN_TABS = ['dashboard', 'products', 'quotes', 'payment', 'dispatch'];
+  var ACCESS_BY_JOB_TITLE = {
+    'Dueño': ALL_ADMIN_TABS,
+    'Encargado de logística': ['quotes', 'payment', 'dispatch'],
+    'Despacho y bodega': ['dispatch'],
+    'Cajero': ['quotes', 'payment', 'dispatch'],
+    'Empleado': ['quotes', 'payment', 'dispatch']
+  };
+  var ADMIN_TAB_LABELS = { dashboard:'Resumen', products:'Catálogo', quotes:'Cotizaciones', payment:'Cobro', dispatch:'Despacho y Bodega' };
+
+  // El "Super Admin" (role real del backend, distinto del cargo) siempre ve
+  // todo, sin importar el cargo — es quien administra las cuentas del equipo.
+  // Si el cargo no esta definido o no es uno de los presets (cuenta antigua,
+  // cargo personalizado), tambien se le da acceso completo para no dejar a
+  // nadie bloqueado por accidente.
+  function allowedAdminTabs(user){
+    if (!user || user.role === 'superadmin') return ALL_ADMIN_TABS;
+    return ACCESS_BY_JOB_TITLE[user.job_title] || ALL_ADMIN_TABS;
+  }
+
   function StaffForm(props){
     var _f = React.useState({ name:'', email:'', password:'', role:'admin' }); var form = _f[0], setForm = _f[1];
     var _jobPreset = React.useState('Empleado'); var jobPreset = _jobPreset[0], setJobPreset = _jobPreset[1];
@@ -1630,26 +1653,37 @@
 
     var token = auth.token, user = auth.user;
     var isSuperAdmin = user && user.role === 'superadmin';
+    var allowedTabs = allowedAdminTabs(user);
+
+    // Si la pestaña activa no esta permitida para este cargo (ej. entra por
+    // primera vez y "dashboard" no esta en su lista), lo mandamos a la primera
+    // que si pueda ver.
+    React.useEffect(function(){
+      if (allowedTabs.indexOf(tab) === -1 && tab !== 'staff') setTab(allowedTabs[0] || 'dashboard');
+    }, [user && user.job_title, user && user.role]);
 
     return e('div', null,
       e('div', { className:'topbar' },
-        e('h1', null, 'Ferretería 4 Esquinas · Admin', isSuperAdmin ? e('span', { className:'badge-role' }, 'Super Admin') : null),
+        e('h1', null,
+          'Ferretería 4 Esquinas · Admin',
+          isSuperAdmin ? e('span', { className:'badge-role' }, 'Super Admin') : (user && user.job_title ? e('span', { className:'badge-role' }, user.job_title) : null)
+        ),
         e('button', { className:'btn', onClick:logout }, 'Cerrar sesión')
       ),
       e('div', { className:'wrap' },
         e('div', { className:'tabs' },
-          e('button', { className:'tab-btn' + (tab === 'dashboard' ? ' active' : ''), onClick:function(){ setTab('dashboard'); } }, 'Resumen'),
-          e('button', { className:'tab-btn' + (tab === 'products' ? ' active' : ''), onClick:function(){ setTab('products'); } }, 'Catálogo'),
-          e('button', { className:'tab-btn' + (tab === 'quotes' ? ' active' : ''), onClick:function(){ setTab('quotes'); } }, 'Cotizaciones'),
-          e('button', { className:'tab-btn' + (tab === 'payment' ? ' active' : ''), onClick:function(){ setTab('payment'); } }, 'Cobro'),
-          e('button', { className:'tab-btn' + (tab === 'dispatch' ? ' active' : ''), onClick:function(){ setTab('dispatch'); } }, 'Despacho y Bodega'),
+          ALL_ADMIN_TABS.filter(function(t){ return allowedTabs.indexOf(t) !== -1; }).map(function(t){
+            return e('button', {
+              key:t, className:'tab-btn' + (tab === t ? ' active' : ''), onClick:function(){ setTab(t); }
+            }, ADMIN_TAB_LABELS[t]);
+          }),
           isSuperAdmin && e('button', { className:'tab-btn' + (tab === 'staff' ? ' active' : ''), onClick:function(){ setTab('staff'); } }, 'Equipo')
         ),
-        tab === 'dashboard' ? e(DashboardTab, { token:token, isSuperAdmin:isSuperAdmin, onNavigate:setTab }) :
-        tab === 'products' ? e(ProductsTab, { token:token }) :
-        tab === 'quotes' ? e(QuotesTab, { token:token, onConfirmed:goConfirmAndPay }) :
-        tab === 'payment' ? e(PaymentVerificationTab, { token:token, onConfirmed:goConfirmAndDispatch, initialQuery:autoSearchQuoteId ? String(autoSearchQuoteId) : '' }) :
-        tab === 'dispatch' ? e(DispatchAndBodegaTab, {
+        tab === 'dashboard' && allowedTabs.indexOf('dashboard') !== -1 ? e(DashboardTab, { token:token, isSuperAdmin:isSuperAdmin, onNavigate:setTab }) :
+        tab === 'products' && allowedTabs.indexOf('products') !== -1 ? e(ProductsTab, { token:token }) :
+        tab === 'quotes' && allowedTabs.indexOf('quotes') !== -1 ? e(QuotesTab, { token:token, onConfirmed:goConfirmAndPay }) :
+        tab === 'payment' && allowedTabs.indexOf('payment') !== -1 ? e(PaymentVerificationTab, { token:token, onConfirmed:goConfirmAndDispatch, initialQuery:autoSearchQuoteId ? String(autoSearchQuoteId) : '' }) :
+        tab === 'dispatch' && allowedTabs.indexOf('dispatch') !== -1 ? e(DispatchAndBodegaTab, {
           token:token, autoStartQuoteId:autoStartQuoteId,
           onConsumedAutoStart:function(){ setAutoStartQuoteId(null); }
         }) :
