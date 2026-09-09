@@ -1482,6 +1482,17 @@
     return lines.join('\n');
   }
 
+  // Codigo de seguridad aleatorio (no adivinable), distinto del numero de pedido
+  // secuencial F4E-XXXXXX. Evita caracteres ambiguos (0/O, 1/I/L).
+  function randomSecurityCode(){
+    var chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    var bytes = new Uint8Array(6);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    var code = '';
+    for (var i = 0; i < bytes.length; i++) code += chars[bytes[i] % chars.length];
+    return code;
+  }
+
   // Descarga generica de un archivo de texto en el navegador (Blob + <a download>).
   // No depende de ninguna API externa, funciona en cualquier navegador normal.
   function triggerTextDownload(filename, text){
@@ -1572,9 +1583,11 @@
     return doc;
   }
 
-  // Factura POS estilo ticket, con el codigo unico del pedido destacado para que
-  // el repartidor (o el personal en tienda) confirme y entregue el producto.
-  function buildFacturaPOSPDF(cart, name, phone, code){
+  // Factura POS estilo ticket, con el codigo de seguridad aleatorio destacado para
+  // que el repartidor (o el personal en tienda) confirme y entregue el producto.
+  // "orderRef" es el numero de pedido F4E-XXXXXX (buscable en el panel de admin);
+  // "securityCode" es el codigo aleatorio vinculado a esta misma factura.
+  function buildFacturaPOSPDF(cart, name, phone, orderRef, securityCode){
     var items = Object.keys(cart).filter(function(id){ return cart[id] > 0; });
     var estHeight = 100 + items.length * 7;
     var doc = new window.jspdf.jsPDF({ unit: 'mm', format: [80, Math.max(150, estHeight)] });
@@ -1591,6 +1604,7 @@
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
     doc.text('FACTURA POS', w / 2, y, { align: 'center' }); y += 5;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+    doc.text('Pedido N.º ' + (orderRef || '—'), w / 2, y, { align: 'center' }); y += 4;
     doc.text(new Date().toLocaleString('es-CO'), w / 2, y, { align: 'center' }); y += 6;
 
     doc.setDrawColor(150);
@@ -1629,10 +1643,10 @@
 
     doc.setDrawColor(0); doc.setLineWidth(0.4);
     doc.roundedRect(marginX, y, w - marginX * 2, 16, 1.5, 1.5);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text(code, w / 2, y + 7, { align: 'center' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text(securityCode, w / 2, y + 7.5, { align: 'center' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
-    doc.text('Código de entrega — muéstralo al repartidor', w / 2, y + 12.5, { align: 'center' });
+    doc.text('Código de seguridad — muéstralo al repartidor', w / 2, y + 12.5, { align: 'center' });
     y += 22;
 
     doc.setFontSize(7);
@@ -1725,24 +1739,32 @@
       triggerTextDownload('venta-4esquinas.txt', text);
     }
 
-    // Codigo de seguridad: identifica el pedido para el repartidor o para que el
+    // Codigo de seguridad: aleatorio (no se puede adivinar a partir de otro pedido),
+    // pero queda vinculado al numero de pedido F4E-XXXXXX de esa misma factura/
+    // cotizacion, que es el que el equipo puede buscar despues en el panel de
+    // administracion. Identifica el pedido para el repartidor o para que el
     // personal en tienda sepa cual pedido es cuando el cliente llega a recogerlo.
     // Solo aplica al modo "venta" — una cotizacion todavia no es un pedido real.
     var secStatusState = React.useState('idle'); // idle | loading | ready | error
     var secStatus = secStatusState[0], setSecStatus = secStatusState[1];
     var secCodeState = React.useState(null);
     var secCode = secCodeState[0], setSecCode = secCodeState[1];
+    var orderRefState = React.useState(null);
+    var orderRef = orderRefState[0], setOrderRef = orderRefState[1];
 
-    // Devuelve una promesa con el codigo, generandolo si aun no existe, para que
-    // el bloque en pantalla y la Factura POS siempre muestren el mismo codigo.
+    // Devuelve una promesa con { securityCode, orderRef }, generando el codigo
+    // aleatorio una sola vez, para que el bloque en pantalla y la Factura POS
+    // siempre muestren el mismo par de codigos para este pedido.
     function ensureSecurityCode(){
-      if (secCode) return Promise.resolve(secCode);
+      if (secCode) return Promise.resolve({ securityCode: secCode, orderRef: orderRef });
       setSecStatus('loading');
+      var code = randomSecurityCode();
       return ensureQuoteSaved().then(function(quoteId){
-        var code = quoteIdToCode(quoteId);
+        var ref = quoteIdToCode(quoteId);
         setSecCode(code);
+        setOrderRef(ref);
         setSecStatus('ready');
-        return code;
+        return { securityCode: code, orderRef: ref };
       }).catch(function(){ setSecStatus('error'); return null; });
     }
 
@@ -1757,10 +1779,10 @@
     function downloadFacturaPOS(){
       if (!ids.length) return;
       setPosStatus('loading');
-      ensureSecurityCode().then(function(code){
-        if (!code) { setPosStatus('error'); return; }
-        var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), code);
-        doc.save('factura-pos-' + code + '.pdf');
+      ensureSecurityCode().then(function(result){
+        if (!result) { setPosStatus('error'); return; }
+        var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), result.orderRef, result.securityCode);
+        doc.save('factura-pos-' + result.securityCode + '.pdf');
         setPosStatus('idle');
       }).catch(function(){ setPosStatus('error'); });
     }
