@@ -63,7 +63,8 @@
 
   .wrap{ max-width:1100px; margin:0 auto; padding:2rem 1.6rem 4rem; }
 
-  .login-box{ max-width:380px; margin:12vh auto 0; background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:2rem; }
+  .login-box{ position:relative; z-index:1; max-width:380px; margin:12vh auto 0; background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:2rem; }
+  .binary-rain{ position:fixed; inset:0; z-index:0; }
   .field{ margin-bottom:1rem; }
   .field label{ display:block; font-size:0.8rem; color:var(--ink-muted); margin-bottom:0.35rem; text-transform:uppercase; letter-spacing:0.04em; }
   .field input, .field select, .field textarea{
@@ -166,6 +167,45 @@
       });
   }
 
+  // Puramente decorativo (no es seguridad real: cualquiera puede ver el codigo fuente
+  // de esta pagina igual). Anima columnas de 0/1 cayendo detras del formulario de login,
+  // estilo "lluvia digital".
+  function BinaryRain(){
+    var canvasRef = React.useRef(null);
+    React.useEffect(function(){
+      var canvas = canvasRef.current;
+      if (!canvas) return;
+      var ctx = canvas.getContext('2d');
+      var fontSize = 16;
+      var columns, drops;
+
+      function resize(){
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        columns = Math.ceil(canvas.width / fontSize);
+        drops = new Array(columns).fill(0).map(function(){ return Math.random() * canvas.height / fontSize; });
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      ctx.font = fontSize + 'px "IBM Plex Mono", monospace';
+      var frame = setInterval(function(){
+        ctx.fillStyle = 'rgba(7,8,11,0.15)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'rgba(0,229,255,0.55)';
+        for (var i = 0; i < columns; i++){
+          var glyph = Math.random() > 0.5 ? '1' : '0';
+          ctx.fillText(glyph, i * fontSize, drops[i] * fontSize);
+          if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+          drops[i]++;
+        }
+      }, 60);
+
+      return function(){ clearInterval(frame); window.removeEventListener('resize', resize); };
+    }, []);
+    return e('canvas', { ref: canvasRef, className: 'binary-rain', 'aria-hidden': 'true' });
+  }
+
   function LoginScreen(props){
     var _e = React.useState(''); var email = _e[0], setEmail = _e[1];
     var _p = React.useState(''); var password = _p[0], setPassword = _p[1];
@@ -188,7 +228,9 @@
         .finally(function(){ setLoading(false); });
     }
 
-    return e('div', { className:'login-box' },
+    return e(React.Fragment, null,
+      e(BinaryRain, null),
+      e('div', { className:'login-box' },
       e('h1', { style:{ marginBottom:'1.4rem', fontSize:'1.4rem' } }, 'Panel de administrador'),
       e('form', { onSubmit: submit },
         e('div', { className:'field' },
@@ -203,6 +245,7 @@
         e('button', { type:'submit', className:'btn btn-primary', style:{ width:'100%', marginTop:'0.6rem' }, disabled:loading }, loading ? 'Entrando…' : 'Entrar')
       ),
       e('p', { className:'hint' }, 'Este panel es solo para el administrador de la ferretería. El usuario se crea desde el backend con "npm run seed:admin".')
+      )
     );
   }
 
