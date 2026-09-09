@@ -224,6 +224,13 @@
         .catch(function(e){ setErr(e.message); });
     }
 
+    function removeMember(member){
+      if (!window.confirm('¿Eliminar definitivamente la cuenta de "' + member.name + '"? Esta acción no se puede deshacer.')) return;
+      apiFetch('/api/staff/' + member.id, props.token, { method:'DELETE' })
+        .then(load)
+        .catch(function(e){ setErr(e.message); });
+    }
+
     return e('div', null,
       e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.2rem' } },
         e('h2', { style:{ fontSize:'1.15rem' } }, 'Equipo (administradores)'),
@@ -257,7 +264,12 @@
                   className:'btn' + (m.active ? ' btn-danger' : ''),
                   onClick:function(){ toggleActive(m); },
                   disabled:m.id === props.currentUserId
-                }, m.active ? 'Desactivar' : 'Activar')
+                }, m.active ? 'Suspender' : 'Reactivar'),
+                e('button', {
+                  className:'btn btn-danger',
+                  onClick:function(){ removeMember(m); },
+                  disabled:m.id === props.currentUserId
+                }, 'Eliminar')
               ))
             );
           }))
