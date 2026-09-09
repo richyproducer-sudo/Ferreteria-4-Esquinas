@@ -548,6 +548,90 @@
     );
   }
 
+  // Verificacion de pago / cobro: pantalla enfocada para cuando un cliente llega
+  // a pagar (en efectivo, o para confirmar un pago en linea) y el personal necesita
+  // ubicar su pedido rapido por codigo, telefono o nombre, ver el total y confirmar
+  // el cobro en un solo paso. Reutiliza los mismos endpoints que la pestaña de
+  // Cotizaciones (no hay un endpoint especial de "pago" en el backend).
+  function PaymentVerificationTab(props){
+    var _query = React.useState(''); var query = _query[0], setQuery = _query[1];
+    var _quotes = React.useState([]); var quotes = _quotes[0], setQuotes = _quotes[1];
+    var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
+    var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+    var _confirming = React.useState(null); var confirmingId = _confirming[0], setConfirmingId = _confirming[1];
+
+    function load(){
+      setLoading(true);
+      apiFetch('/api/quotes', props.token)
+        .then(function(data){ setQuotes(data.quotes); setErr(''); })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setLoading(false); });
+    }
+    React.useEffect(load, []);
+
+    function confirmPayment(q){
+      setConfirmingId(q.id);
+      apiFetch('/api/quotes/' + q.id + '/status', props.token, { method:'PUT', body: JSON.stringify({ status:'confirmada' }) })
+        .then(load)
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setConfirmingId(null); });
+    }
+
+    var s = query.trim().toLowerCase();
+    var matches = s === '' ? [] : quotes.filter(function(q){
+      var code = 'F4E-' + String(q.id).padStart(6, '0');
+      return q.customer_name.toLowerCase().indexOf(s) !== -1 || q.customer_phone.indexOf(query.trim()) !== -1 ||
+        code.toLowerCase().indexOf(s) !== -1 || String(q.id) === query.trim();
+    }).sort(function(a, b){ return new Date(b.created_at) - new Date(a.created_at); });
+
+    return e('div', null,
+      e('h2', { style:{ fontSize:'1.15rem', marginBottom:'0.4rem' } }, 'Verificación de pago / Cobro'),
+      e('p', { className:'hint', style:{ marginBottom:'1.2rem' } }, 'Busca el pedido del cliente por código (F4E-000123), teléfono o nombre para confirmar el cobro.'),
+      e('div', { className:'search-row' },
+        e('input', {
+          placeholder:'Código de pedido, teléfono o nombre…', value:query,
+          onChange:function(ev){ setQuery(ev.target.value); },
+          style:{ fontFamily:"'IBM Plex Mono', monospace", fontSize:'1.05rem' }
+        })
+      ),
+      err ? e('div', { className:'error-msg' }, err) : null,
+      loading ? e('p', { className:'hint' }, 'Cargando…') :
+      s === '' ? e('div', { className:'empty' }, 'Escribe un código, teléfono o nombre para buscar un pedido.') :
+      matches.length === 0 ? e('div', { className:'empty' }, 'No se encontró ningún pedido que coincida.') :
+      matches.map(function(q){
+        var code = 'F4E-' + String(q.id).padStart(6, '0');
+        var isConfirmed = q.status === 'confirmada';
+        var isCancelled = q.status === 'cancelada';
+        return e('div', { key:q.id, className:'quote-card' },
+          e('div', { className:'quote-head' },
+            e('div', null,
+              e('span', { className:'name' }, q.customer_name), ' — ',
+              e('span', { className:'mono' }, q.customer_phone), ' — ',
+              e('span', { className:'mono', style:{ fontWeight:700 } }, code)
+            ),
+            e('span', { className:'hint' }, new Date(q.created_at).toLocaleString('es-CO'))
+          ),
+          e('div', { className:'quote-items' }, q.items.map(function(it){
+            return e('div', { key:it.id }, e('span', null, it.qty + '× ' + it.product_name), e('span', { className:'mono' }, money(it.unit_price * it.qty)));
+          })),
+          e('div', { className:'quote-foot' },
+            e('span', { className:'mono', style:{ fontWeight:700 } }, 'Total a cobrar: ' + money(q.subtotal)),
+            q.payment_method === 'wompi' ? e('span', { className:'hint' },
+              q.payment_status === 'pagado' ? '💳 Pagado en línea (Wompi)' :
+              q.payment_status === 'fallido' ? '💳 Pago en línea fallido' : '💳 Pago en línea pendiente'
+            ) : null,
+            isConfirmed ? e('span', { className:'hint', style:{ color:'var(--accent-bright)', fontWeight:700 } }, '✓ Cobro confirmado') :
+            isCancelled ? e('span', { className:'hint' }, 'Pedido cancelado') :
+            e('button', {
+              className:'btn btn-primary', disabled: confirmingId === q.id,
+              onClick:function(){ confirmPayment(q); }
+            }, confirmingId === q.id ? 'Confirmando…' : 'Confirmar cobro recibido')
+          )
+        );
+      })
+    );
+  }
+
   function DashboardTab(props){
     var _stats = React.useState(null); var stats = _stats[0], setStats = _stats[1];
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
@@ -1118,12 +1202,14 @@
           e('button', { className:'tab-btn' + (tab === 'dashboard' ? ' active' : ''), onClick:function(){ setTab('dashboard'); } }, 'Resumen'),
           e('button', { className:'tab-btn' + (tab === 'products' ? ' active' : ''), onClick:function(){ setTab('products'); } }, 'Catálogo'),
           e('button', { className:'tab-btn' + (tab === 'quotes' ? ' active' : ''), onClick:function(){ setTab('quotes'); } }, 'Cotizaciones'),
+          e('button', { className:'tab-btn' + (tab === 'payment' ? ' active' : ''), onClick:function(){ setTab('payment'); } }, 'Cobro'),
           e('button', { className:'tab-btn' + (tab === 'dispatch' ? ' active' : ''), onClick:function(){ setTab('dispatch'); } }, 'Despacho y Bodega'),
           isSuperAdmin && e('button', { className:'tab-btn' + (tab === 'staff' ? ' active' : ''), onClick:function(){ setTab('staff'); } }, 'Equipo')
         ),
         tab === 'dashboard' ? e(DashboardTab, { token:token, isSuperAdmin:isSuperAdmin, onNavigate:setTab }) :
         tab === 'products' ? e(ProductsTab, { token:token }) :
         tab === 'quotes' ? e(QuotesTab, { token:token }) :
+        tab === 'payment' ? e(PaymentVerificationTab, { token:token }) :
         tab === 'dispatch' ? e(DispatchAndBodegaTab, { token:token }) :
         (tab === 'staff' && isSuperAdmin) ? e(StaffTab, { token:token, currentUserId: user.id }) : null
       )

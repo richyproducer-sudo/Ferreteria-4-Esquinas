@@ -408,10 +408,29 @@
     transform:translateX(100%); transition:transform 0.4s cubic-bezier(.2,.8,.2,1);
   }
   .drawer.show{ transform:translateX(0); }
+  #drawerRoot{ flex:1; min-height:0; display:flex; flex-direction:column; }
   .drawer-head{ display:flex; align-items:center; justify-content:space-between; padding:1.2rem 1.4rem; border-bottom:1px solid var(--line); }
   .drawer-head h3{ font-size:1.3rem; }
   .drawer-close{ width:34px; height:34px; border-radius:8px; background:var(--surface-raised); border:1px solid var(--line); color:var(--ink); cursor:pointer; display:flex; align-items:center; justify-content:center; }
-  .drawer-body{ flex:1; overflow-y:auto; padding:1rem 1.4rem; }
+  .drawer-scroll{
+    flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column;
+    scrollbar-width:thin; scrollbar-color:var(--accent) var(--surface-raised);
+    /* Sombras que aparecen/desaparecen segun si hay mas contenido arriba o abajo —
+       visibles tambien en moviles, donde la barra de scroll no se ve. */
+    background:
+      linear-gradient(var(--surface) 30%, rgba(14,15,19,0)) local,
+      linear-gradient(rgba(14,15,19,0), var(--surface) 70%) 0 100% local,
+      linear-gradient(to bottom, rgba(0,229,255,0.35), rgba(0,229,255,0)) local,
+      linear-gradient(to top, rgba(0,229,255,0.35), rgba(0,229,255,0)) 0 100% local;
+    background-repeat:no-repeat;
+    background-size:100% 36px, 100% 36px, 100% 12px, 100% 12px;
+    background-attachment:local, local, scroll, scroll;
+  }
+  .drawer-scroll::-webkit-scrollbar{ width:9px; }
+  .drawer-scroll::-webkit-scrollbar-track{ background:var(--surface-raised); }
+  .drawer-scroll::-webkit-scrollbar-thumb{ background:var(--accent); border-radius:5px; border:2px solid var(--surface-raised); }
+  .drawer-scroll::-webkit-scrollbar-thumb:hover{ background:var(--accent-bright); }
+  .drawer-body{ padding:1rem 1.4rem; }
   .cart-item{ display:flex; gap:0.8rem; padding:0.9rem 0; border-bottom:1px solid var(--line); align-items:center; }
   .cart-item .ci-art{ width:52px; height:52px; border-radius:8px; background:var(--surface-raised); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; flex:none; }
   .cart-item .ci-art svg{ width:60%; height:60%; color:var(--ink-soft); }
@@ -438,7 +457,6 @@
   .quote-panel input:focus{ outline:2px solid var(--accent); border-color:var(--accent); }
   .quote-actions{ display:flex; flex-direction:column; gap:0.6rem; margin-top:0.4rem; }
   .quote-note{ font-size:0.74rem; color:var(--ink-muted); line-height:1.5; }
-  .wompi-block{ display:flex; flex-direction:column; gap:0.6rem; padding-top:0.8rem; border-top:1px dashed var(--line); }
 
   /* ---------------- whatsapp float ---------------- */
   .wa-float{
@@ -661,7 +679,7 @@
           <span>¿Cómo hago una venta o pedido?</span>
           <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
         </button>
-        <div class="faq-a"><p>Agrega los productos que necesitas al carrito desde el catálogo y genera tu venta: puedes enviarla por WhatsApp al 310 634 4419, pagar en efectivo con un código de pedido para recoger en tienda o contra entrega, o pagar en línea con tarjeta, PSE o Nequi.</p></div>
+        <div class="faq-a"><p>Agrega los productos que necesitas al carrito desde el catálogo y genera tu venta: envíala por WhatsApp al 310 634 4419 y un asesor confirma contigo el pago y la forma de entrega.</p></div>
       </div>
       <div class="faq-item reveal">
         <button class="faq-q" type="button" aria-expanded="false">
@@ -675,7 +693,7 @@
           <span>¿Qué métodos de pago aceptan?</span>
           <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
         </button>
-        <div class="faq-a"><p>Aceptamos efectivo, transferencia y pago con tarjeta en el punto de venta. Para compras grandes o de contratistas, coméntanos por WhatsApp para acordar la forma de pago.</p></div>
+        <div class="faq-a"><p>Aceptamos efectivo en el local. Envíanos tu venta por WhatsApp y un asesor confirma contigo el pago y el código de tu pedido. Para compras grandes o de contratistas, coméntanos por WhatsApp para acordar la forma de pago.</p></div>
       </div>
       <div class="faq-item reveal">
         <button class="faq-q" type="button" aria-expanded="false">
@@ -1452,36 +1470,6 @@
     return lines.join('\n');
   }
 
-  // Comprobante para pagar en efectivo en el punto físico (o contra entrega): lleva
-  // un codigo de pedido para que el cliente lo muestre al llegar a la tienda o al
-  // repartidor. "code" ya viene formateado (F4E-000123 si hay quote_id del backend,
-  // o un codigo temporal si el sitio esta corriendo sin backend).
-  function buildInvoiceText(code, cart, name, phone){
-    var lines = [];
-    lines.push('Ferretería 4 Esquinas — Comprobante de pedido');
-    lines.push('Bahía Solano, Chocó');
-    lines.push('');
-    lines.push('Código de pedido: ' + code);
-    lines.push('Fecha: ' + new Date().toLocaleString('es-CO'));
-    lines.push('');
-    if (name) lines.push('Cliente: ' + name);
-    if (phone) lines.push('Teléfono: ' + phone);
-    if (name || phone) lines.push('');
-    var subtotal = 0;
-    Object.keys(cart).filter(function(id){ return cart[id] > 0; }).forEach(function(id){
-      var p = window.PRODUCTS_BY_ID[id];
-      if (!p) return;
-      var lineTotal = p.price * cart[id];
-      subtotal += lineTotal;
-      lines.push('• ' + p.name + ' (' + p.unit + ')  x' + cart[id] + '  —  ' + money(lineTotal));
-    });
-    lines.push('');
-    lines.push('Total a pagar: ' + money(subtotal));
-    lines.push('');
-    lines.push('Presenta este código en la tienda para pagar en efectivo y recoger tu pedido, o muéstralo al repartidor si es contra entrega.');
-    return lines.join('\n');
-  }
-
   function CartDrawerApp(){
     var state = React.useState(window.CartStore.get());
     var cart = state[0], setCart = state[1];
@@ -1506,8 +1494,8 @@
 
     // Guarda la cotizacion en el backend UNA sola vez (sin importar cuantos botones
     // se toquen despues) y siempre devuelve una promesa con el quote_id, para que
-    // el pago con Wompi (que si necesita el id) y el envio por WhatsApp/descarga
-    // (que no lo necesitan) puedan compartir el mismo guardado.
+    // el codigo de verificacion del pago en efectivo y el envio por WhatsApp/descarga
+    // puedan compartir el mismo guardado.
     function ensureQuoteSaved(){
       if (quoteIdPromiseRef.current) return quoteIdPromiseRef.current;
       if (!window.API_BASE || !ids.length) return Promise.resolve(null);
@@ -1535,65 +1523,6 @@
 
     function saveQuoteToBackend(){ ensureQuoteSaved(); }
 
-    var cashStatusState = React.useState('idle'); // idle | loading | ready | error
-    var cashStatus = cashStatusState[0], setCashStatus = cashStatusState[1];
-    var cashCodeState = React.useState(null);
-    var cashCode = cashCodeState[0], setCashCode = cashCodeState[1];
-
-    function payInCash(){
-      if (!ids.length) return;
-      setCashStatus('loading');
-      ensureQuoteSaved().then(function(quoteId){
-        var code = quoteId ? 'F4E-' + String(quoteId).padStart(6, '0') : 'TEMP-' + String(Date.now()).slice(-8);
-        var text = buildInvoiceText(code, cart, name.trim(), phone.trim());
-        setCashCode(code);
-        setCashStatus('ready');
-        return (async function(){
-          try {
-            var downloads = await claude.use('downloads');
-            if (!downloads) return;
-            await downloads.save({ filename: 'pedido-' + code + '.txt', data: text });
-          } catch (err) { /* viewer declined o no disponible — el codigo ya se muestra en pantalla */ }
-        })();
-      }).catch(function(){ setCashStatus('error'); });
-    }
-
-    var wompiStatusState = React.useState('idle'); // idle | loading | ready | error
-    var wompiStatus = wompiStatusState[0], setWompiStatus = wompiStatusState[1];
-    var wompiContainerRef = React.useRef(null);
-
-    function renderWompiButton(checkout){
-      var container = wompiContainerRef.current;
-      if (!container) return;
-      container.innerHTML = '';
-      var form = document.createElement('form');
-      var script = document.createElement('script');
-      script.src = 'https://checkout.wompi.co/widget.js';
-      script.setAttribute('data-render', 'button');
-      script.setAttribute('data-public-key', checkout.publicKey);
-      script.setAttribute('data-currency', checkout.currency);
-      script.setAttribute('data-amount-in-cents', String(checkout.amountInCents));
-      script.setAttribute('data-reference', checkout.reference);
-      script.setAttribute('data-signature:integrity', checkout.signature);
-      form.appendChild(script);
-      container.appendChild(form);
-    }
-
-    function payWithWompi(){
-      if (!ids.length || !window.API_BASE) return;
-      setWompiStatus('loading');
-      ensureQuoteSaved().then(function(quoteId){
-        if (!quoteId) { setWompiStatus('error'); return; }
-        return fetch(window.API_BASE + '/api/quotes/' + quoteId + '/wompi-checkout', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }
-        }).then(function(res){ return res.json(); }).then(function(data){
-          if (!data || !data.ok) { setWompiStatus('error'); return; }
-          renderWompiButton(data.checkout);
-          setWompiStatus('ready');
-        });
-      }).catch(function(){ setWompiStatus('error'); });
-    }
-
     function sendWhatsApp(){
       if (!ids.length) return;
       saveQuoteToBackend();
@@ -1620,6 +1549,7 @@
         e('button', { className: 'drawer-close', 'aria-label': 'Cerrar', onClick: function(){ window.closeCartDrawer(); } },
           e('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, width: 16, height: 16 },
             e('path', { d: 'M6 6l12 12M18 6L6 18' })))),
+      e('div', { className: 'drawer-scroll' },
       e('div', { className: 'drawer-body' },
         ids.length === 0
           ? e('p', { className: 'cart-empty' }, 'Tu venta está vacía.', e('br'), 'Agrega productos del catálogo.')
@@ -1654,21 +1584,7 @@
               e('path', { d: 'M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.42-1.36a9.9 9.9 0 0 0 4.62 1.14h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2m0 1.67c4.55 0 8.24 3.69 8.24 8.24 0 4.55-3.69 8.24-8.24 8.24a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.81.83-3.04-.2-.31a8.2 8.2 0 0 1-1.26-4.37c0-4.55 3.69-8.24 8.24-8.24m4.48 10.5c-.25-.12-1.47-.72-1.69-.8-.23-.08-.4-.12-.56.13-.17.24-.65.8-.8.96-.15.17-.29.19-.54.06-.25-.12-1.04-.38-1.98-1.22-.73-.65-1.23-1.46-1.37-1.7-.15-.25-.02-.38.11-.5.11-.11.25-.29.37-.44.12-.14.16-.24.25-.41.08-.16.04-.31-.02-.43-.06-.13-.56-1.35-.77-1.85-.2-.48-.41-.42-.56-.43-.14-.01-.31-.01-.48-.01-.16 0-.43.06-.66.31-.23.24-.86.85-.86 2.06 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.24 3.75.59.26 1.05.41 1.41.52.59.19 1.13.16 1.55.1.47-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.15-1.18-.06-.1-.23-.16-.48-.28' })),
             'Enviar venta por WhatsApp'),
           e('button', { className: 'btn btn-ghost', style: { width: '100%' }, onClick: downloadQuote }, 'Descargar venta')),
-        e('p', { className: 'quote-note' }, 'Al enviar, se abre WhatsApp con el detalle de tu pedido dirigido a Ferretería 4 Esquinas. Un asesor confirma precios, disponibilidad y forma de entrega.'),
-        e('div', { className: 'wompi-block' },
-          e('p', { className: 'quote-note' }, '¿Prefieres pagar en efectivo al recibir o en la tienda?'),
-          e('button', {
-            className: 'btn', style: { width: '100%' }, disabled: cashStatus === 'loading', onClick: payInCash
-          }, cashStatus === 'loading' ? 'Generando código…' : 'Pagar en efectivo (generar código de pedido)'),
-          cashStatus === 'ready' && cashCode && e('p', { className: 'quote-note', style: { fontWeight: 700 } }, 'Tu código de pedido: ' + cashCode + '. Muéstralo en la tienda o al repartidor.'),
-          cashStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo generar el código. Intenta de nuevo o envía tu venta por WhatsApp.')),
-        e('div', { className: 'wompi-block' },
-          e('p', { className: 'quote-note' }, '¿Prefieres pagar en línea ahora (tarjeta, PSE, Nequi)?'),
-          wompiStatus !== 'ready' && e('button', {
-            className: 'btn', style: { width: '100%' }, disabled: wompiStatus === 'loading', onClick: payWithWompi
-          }, wompiStatus === 'loading' ? 'Preparando pago…' : 'Pagar ahora en línea (Wompi)'),
-          wompiStatus === 'error' && e('p', { className: 'quote-note' }, 'No se pudo iniciar el pago en línea en este momento. Puedes enviar tu venta por WhatsApp y pagar contra entrega.'),
-          e('div', { ref: wompiContainerRef }))));
+        e('p', { className: 'quote-note' }, 'Al enviar, se abre WhatsApp con el detalle de tu pedido dirigido a Ferretería 4 Esquinas. Un asesor confirma precios, disponibilidad y forma de entrega.'))));
   }
 
   var root = ReactDOM.createRoot(document.getElementById('drawerRoot'));
