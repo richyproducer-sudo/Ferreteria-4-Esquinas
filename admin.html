@@ -101,6 +101,20 @@
   .empty{ color:var(--ink-muted); text-align:center; padding:3rem 1rem; }
   .row-actions{ display:flex; gap:0.5rem; }
   .row-actions button{ padding:0.35rem 0.7rem; font-size:0.8rem; }
+
+  .subtabs{ display:flex; gap:0.5rem; margin-bottom:1.2rem; }
+  .subtab-btn{ background:none; border:1px solid var(--line); color:var(--ink-muted); padding:0.4rem 0.9rem; border-radius:999px; font-size:0.82rem; font-weight:600; }
+  .subtab-btn.active{ background:var(--navy-bright); border-color:var(--navy-bright); color:var(--on-accent); }
+  .qty-adjust{ display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
+  .qty-adjust input[type="number"]{ width:70px; background:var(--surface-hi); border:1px solid var(--line); border-radius:6px; color:var(--ink); padding:0.3rem 0.5rem; font-size:0.85rem; }
+  .qty-adjust input[type="text"]{ width:120px; background:var(--surface-hi); border:1px solid var(--line); border-radius:6px; color:var(--ink); padding:0.3rem 0.5rem; font-size:0.85rem; }
+  .badge-dispatch-pendiente{ background:rgba(255,238,0,0.16); color:#FFEE66; }
+  .badge-dispatch-preparando{ background:rgba(0,229,255,0.16); color:var(--accent-bright); }
+  .badge-dispatch-despachado{ background:rgba(255,110,240,0.18); color:var(--navy-bright); }
+  .badge-dispatch-entregado{ background:rgba(57,255,20,0.16); color:#7CFF9E; }
+  .movements-list{ font-size:0.85rem; max-height:260px; overflow:auto; }
+  .movements-list div{ display:flex; justify-content:space-between; gap:0.5rem; padding:0.4rem 0; border-bottom:1px solid var(--line); }
+  .movements-list div:last-child{ border-bottom:none; }
 </style>
 </head>
 <body>
@@ -657,6 +671,156 @@
     );
   }
 
+  function DespachosView(props){
+    var _quotes = React.useState([]); var quotes = _quotes[0], setQuotes = _quotes[1];
+    var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
+    var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+
+    function load(){
+      setLoading(true);
+      apiFetch('/api/quotes', props.token)
+        .then(function(data){ setQuotes(data.quotes.filter(function(q){ return q.status === 'confirmada'; })); setErr(''); })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setLoading(false); });
+    }
+    React.useEffect(load, []);
+
+    function changeDispatch(q, status){
+      apiFetch('/api/quotes/' + q.id + '/dispatch-status', props.token, { method:'PUT', body: JSON.stringify({ dispatch_status: status }) })
+        .then(load)
+        .catch(function(e){ setErr(e.message); });
+    }
+
+    return e('div', null,
+      e('p', { className:'hint', style:{ marginBottom:'1rem' } }, 'Solo se muestran las cotizaciones ya confirmadas por el cliente (listas para preparar/despachar).'),
+      err ? e('div', { className:'error-msg' }, err) : null,
+      loading ? e('p', { className:'hint' }, 'Cargando…') :
+      quotes.length === 0 ? e('div', { className:'empty' }, 'No hay pedidos confirmados pendientes de despacho.') :
+      quotes.map(function(q){
+        return e('div', { key:q.id, className:'quote-card' },
+          e('div', { className:'quote-head' },
+            e('div', null, e('span', { className:'name' }, q.customer_name), ' — ', e('span', { className:'mono' }, q.customer_phone)),
+            e('span', { className:'hint' }, new Date(q.created_at).toLocaleString('es-CO'))
+          ),
+          e('div', { className:'quote-items' }, q.items.map(function(it){
+            return e('div', { key:it.id }, e('span', null, it.qty + '× ' + it.product_name), e('span', { className:'mono' }, money(it.unit_price * it.qty)));
+          })),
+          e('div', { className:'quote-foot' },
+            e('span', { className:'mono', style:{ fontWeight:700 } }, 'Total: ' + money(q.subtotal)),
+            q.dispatch_updated_at ? e('span', { className:'hint' }, 'Actualizado: ' + new Date(q.dispatch_updated_at).toLocaleString('es-CO')) : null,
+            e('select', {
+              className:'mono', value:q.dispatch_status, onChange:function(ev){ changeDispatch(q, ev.target.value); },
+              style:{ background:'var(--surface-hi)', color:'var(--ink)', border:'1px solid var(--line)', borderRadius:'6px', padding:'0.3rem 0.5rem' }
+            },
+              e('option', { value:'pendiente' }, 'Pendiente'),
+              e('option', { value:'preparando' }, 'Preparando'),
+              e('option', { value:'despachado' }, 'Despachado'),
+              e('option', { value:'entregado' }, 'Entregado')
+            )
+          )
+        );
+      })
+    );
+  }
+
+  function MovementsModal(props){
+    var _mv = React.useState([]); var movements = _mv[0], setMovements = _mv[1];
+    var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
+    React.useEffect(function(){
+      apiFetch('/api/products/' + props.product.id + '/movements', props.token)
+        .then(function(data){ setMovements(data.movements); })
+        .catch(function(){})
+        .finally(function(){ setLoading(false); });
+    }, []);
+    return e('div', { className:'modal-overlay', onClick:function(ev){ if (ev.target === ev.currentTarget) props.onClose(); } },
+      e('div', { className:'modal', style:{ maxWidth:'420px' } },
+        e('div', { className:'modal-head' },
+          e('h2', { style:{ fontSize:'1.1rem' } }, 'Historial: ' + props.product.name),
+          e('button', { className:'modal-close', onClick:props.onClose }, '×')
+        ),
+        loading ? e('p', { className:'hint' }, 'Cargando…') :
+        movements.length === 0 ? e('p', { className:'hint' }, 'Sin movimientos registrados.') :
+        e('div', { className:'movements-list' }, movements.map(function(m){
+          return e('div', { key:m.id },
+            e('span', null, (m.change_qty > 0 ? '+' : '') + m.change_qty + (m.reason ? ' — ' + m.reason : '') + (m.staff_name ? ' (' + m.staff_name + ')' : '')),
+            e('span', { className:'hint' }, new Date(m.created_at).toLocaleDateString('es-CO'))
+          );
+        }))
+      )
+    );
+  }
+
+  function BodegaView(props){
+    var _products = React.useState([]); var products = _products[0], setProducts = _products[1];
+    var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
+    var _err = React.useState(''); var err = _err[0], setErr = _err[1];
+    var _deltas = React.useState({}); var deltas = _deltas[0], setDeltas = _deltas[1];
+    var _reasons = React.useState({}); var reasons = _reasons[0], setReasons = _reasons[1];
+    var _history = React.useState(null); var historyProduct = _history[0], setHistoryProduct = _history[1];
+
+    function load(){
+      setLoading(true);
+      apiFetch('/api/products', props.token)
+        .then(function(data){ setProducts(data.products); setErr(''); })
+        .catch(function(e){ setErr(e.message); })
+        .finally(function(){ setLoading(false); });
+    }
+    React.useEffect(load, []);
+
+    function adjust(p){
+      var delta = parseInt(deltas[p.id], 10);
+      if (!delta) { setErr('Escribe una cantidad distinta de cero (positiva para entrada, negativa para salida).'); return; }
+      setErr('');
+      apiFetch('/api/products/' + p.id + '/stock', props.token, { method:'PUT', body: JSON.stringify({ change_qty: delta, reason: reasons[p.id] || '' }) })
+        .then(function(){
+          setDeltas(Object.assign({}, deltas, { [p.id]: '' }));
+          setReasons(Object.assign({}, reasons, { [p.id]: '' }));
+          load();
+        })
+        .catch(function(e){ setErr(e.message); });
+    }
+
+    return e('div', null,
+      err ? e('div', { className:'error-msg' }, err) : null,
+      loading ? e('p', { className:'hint' }, 'Cargando…') :
+      e('div', { className:'table-wrap' },
+        e('table', null,
+          e('thead', null, e('tr', null,
+            e('th', null, 'Producto'), e('th', null, 'Categoría'), e('th', null, 'En bodega'),
+            e('th', null, 'Estado'), e('th', null, 'Ajustar')
+          )),
+          e('tbody', null, products.map(function(p){
+            return e('tr', { key:p.id },
+              e('td', null, p.name),
+              e('td', null, p.category),
+              e('td', { className:'mono' }, p.stock_quantity + ' ' + p.unit),
+              e('td', null, e(StockBadge, { status:p.stock_status })),
+              e('td', null, e('div', { className:'qty-adjust' },
+                e('input', { type:'number', placeholder:'+/-', value: deltas[p.id] || '', onChange:function(ev){ setDeltas(Object.assign({}, deltas, { [p.id]: ev.target.value })); } }),
+                e('input', { type:'text', placeholder:'Motivo (opcional)', value: reasons[p.id] || '', onChange:function(ev){ setReasons(Object.assign({}, reasons, { [p.id]: ev.target.value })); } }),
+                e('button', { className:'btn', onClick:function(){ adjust(p); } }, 'Ajustar'),
+                e('button', { className:'btn', onClick:function(){ setHistoryProduct(p); } }, 'Historial')
+              ))
+            );
+          }))
+        )
+      ),
+      historyProduct ? e(MovementsModal, { token:props.token, product:historyProduct, onClose:function(){ setHistoryProduct(null); } }) : null
+    );
+  }
+
+  function DispatchAndBodegaTab(props){
+    var _sub = React.useState('despacho'); var sub = _sub[0], setSub = _sub[1];
+    return e('div', null,
+      e('h2', { style:{ fontSize:'1.15rem', marginBottom:'1rem' } }, 'Despacho y Bodega'),
+      e('div', { className:'subtabs' },
+        e('button', { className:'subtab-btn' + (sub === 'despacho' ? ' active' : ''), onClick:function(){ setSub('despacho'); } }, 'Despachos'),
+        e('button', { className:'subtab-btn' + (sub === 'bodega' ? ' active' : ''), onClick:function(){ setSub('bodega'); } }, 'Inventario / Bodega')
+      ),
+      sub === 'despacho' ? e(DespachosView, { token:props.token }) : e(BodegaView, { token:props.token })
+    );
+  }
+
   function readSavedAuth(){
     try {
       var raw = localStorage.getItem(TOKEN_KEY);
@@ -699,11 +863,13 @@
           e('button', { className:'tab-btn' + (tab === 'dashboard' ? ' active' : ''), onClick:function(){ setTab('dashboard'); } }, 'Resumen'),
           e('button', { className:'tab-btn' + (tab === 'products' ? ' active' : ''), onClick:function(){ setTab('products'); } }, 'Catálogo'),
           e('button', { className:'tab-btn' + (tab === 'quotes' ? ' active' : ''), onClick:function(){ setTab('quotes'); } }, 'Cotizaciones'),
+          e('button', { className:'tab-btn' + (tab === 'dispatch' ? ' active' : ''), onClick:function(){ setTab('dispatch'); } }, 'Despacho y Bodega'),
           isSuperAdmin && e('button', { className:'tab-btn' + (tab === 'staff' ? ' active' : ''), onClick:function(){ setTab('staff'); } }, 'Equipo')
         ),
         tab === 'dashboard' ? e(DashboardTab, { token:token, isSuperAdmin:isSuperAdmin, onNavigate:setTab }) :
         tab === 'products' ? e(ProductsTab, { token:token }) :
         tab === 'quotes' ? e(QuotesTab, { token:token }) :
+        tab === 'dispatch' ? e(DispatchAndBodegaTab, { token:token }) :
         (tab === 'staff' && isSuperAdmin) ? e(StaffTab, { token:token, currentUserId: user.id }) : null
       )
     );
