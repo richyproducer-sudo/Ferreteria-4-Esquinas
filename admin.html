@@ -819,19 +819,20 @@
           e('div', { className:'field' }, e('label', null, 'Nombre'), e('input', { value:form.name, onChange:set('name'), required:true })),
           e('div', { className:'field' }, e('label', null, 'Correo'), e('input', { type:'email', value:form.email, onChange:set('email'), required:true })),
           e('div', { className:'field' }, e('label', null, 'Contraseña'), e('input', { type:'password', value:form.password, onChange:set('password'), required:true, minLength:8 })),
-          e('div', { className:'field' }, e('label', null, 'Puesto'),
+          e('div', { className:'field' }, e('label', null, 'Rol (nivel de acceso)'),
             e('select', { value:jobPreset, onChange:onJobPresetChange },
               JOB_TITLE_PRESETS.map(function(j){ return e('option', { key:j, value:j }, j); }),
               e('option', { value:'Otro' }, 'Otro (escribir)')
             ),
-            jobPreset === 'Otro' && e('input', { style:{ marginTop:'0.5rem' }, placeholder:'Escribe el puesto', value:jobCustom, onChange:function(ev){ setJobCustom(ev.target.value); }, required:true })
+            jobPreset === 'Otro' && e('input', { style:{ marginTop:'0.5rem' }, placeholder:'Escribe el rol', value:jobCustom, onChange:function(ev){ setJobCustom(ev.target.value); }, required:true }),
+            e('p', { className:'hint', style:{ marginTop:'0.3rem' } }, 'Define qué pestañas del panel puede ver esta cuenta (Cotizaciones, Cobro, Despacho…).')
           ),
-          e('div', { className:'field' }, e('label', null, 'Rol (nivel de acceso)'),
+          e('div', { className:'field' }, e('label', null, 'Tipo de cuenta'),
             e('select', { value:form.role, onChange:set('role') },
               e('option', { value:'admin' }, 'Administrador'),
               e('option', { value:'superadmin' }, 'Super administrador')
             ),
-            e('p', { className:'hint', style:{ marginTop:'0.3rem' } }, 'Super administrador puede gestionar el equipo; Administrador solo catálogo y cotizaciones.')
+            e('p', { className:'hint', style:{ marginTop:'0.3rem' } }, 'Super administrador siempre ve todo el panel y puede gestionar el equipo, sin importar el rol elegido arriba.')
           ),
           err ? e('div', { className:'error-msg' }, err) : null,
           e('div', { className:'form-actions' },
@@ -900,7 +901,7 @@
       e('div', { className:'table-wrap' },
         e('table', null,
           e('thead', null, e('tr', null,
-            e('th', null, 'Nombre'), e('th', null, 'Correo'), e('th', null, 'Puesto'), e('th', null, 'Rol'),
+            e('th', null, 'Nombre'), e('th', null, 'Correo'), e('th', null, 'Rol (nivel de acceso)'), e('th', null, 'Tipo de cuenta'),
             e('th', null, 'Estado'), e('th', null, '')
           )),
           e('tbody', null, staff.map(function(m){
