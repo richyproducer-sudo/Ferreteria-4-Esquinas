@@ -491,6 +491,7 @@
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
     var _search = React.useState(''); var search = _search[0], setSearch = _search[1];
     var _statusFilter = React.useState('todas'); var statusFilter = _statusFilter[0], setStatusFilter = _statusFilter[1];
+    var _dismissed = React.useState(loadDismissedQuotes()); var dismissed = _dismissed[0], setDismissed = _dismissed[1];
 
     function load(){
       setLoading(true);
@@ -510,7 +511,14 @@
         .catch(function(e){ setErr(e.message); });
     }
 
+    function deleteQuote(q){
+      if (!window.confirm('¿Eliminar la cotización de "' + q.customer_name + '" (F4E-' + String(q.id).padStart(6, '0') + ') de esta lista? El registro se conserva en el sistema, solo deja de verse aquí.')) return;
+      dismissQuote(q.id);
+      setDismissed(loadDismissedQuotes());
+    }
+
     var filtered = quotes.filter(function(q){
+      if (dismissed.indexOf(q.id) !== -1) return false;
       var code = 'F4E-' + String(q.id).padStart(6, '0');
       var s = search.trim().toLowerCase();
       var matchesSearch = !s || q.customer_name.toLowerCase().indexOf(s) !== -1 || q.customer_phone.indexOf(search.trim()) !== -1 ||
@@ -518,9 +526,11 @@
       var matchesStatus = statusFilter === 'todas' || q.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
+    var hiddenCount = quotes.filter(function(q){ return dismissed.indexOf(q.id) !== -1; }).length;
 
     return e('div', null,
-      e('h2', { style:{ fontSize:'1.15rem', marginBottom:'1.2rem' } }, 'Cotizaciones'),
+      e('h2', { style:{ fontSize:'1.15rem', marginBottom:'0.4rem' } }, 'Cotizaciones'),
+      hiddenCount > 0 ? e('p', { className:'hint', style:{ marginBottom:'0.8rem' } }, hiddenCount + ' cotización' + (hiddenCount === 1 ? '' : 'es') + ' eliminada' + (hiddenCount === 1 ? '' : 's') + ' de esta lista.') : null,
       e('div', { className:'search-row' },
         e('input', { placeholder:'Buscar por nombre, teléfono o código de pedido…', value:search, onChange:function(ev){ setSearch(ev.target.value); } }),
         e('select', { value:statusFilter, onChange:function(ev){ setStatusFilter(ev.target.value); } },
@@ -557,7 +567,8 @@
               e('option', { value:'nueva' }, 'Nueva'),
               e('option', { value:'confirmada' }, 'Confirmada'),
               e('option', { value:'cancelada' }, 'Cancelada')
-            )
+            ),
+            e('button', { className:'btn btn-danger', onClick:function(){ deleteQuote(q); } }, 'Eliminar')
           )
         );
       })
@@ -654,7 +665,7 @@
   // en un solo paso. Reutiliza los mismos endpoints que la pestaña de Cotizaciones
   // y el mismo checkout de Wompi que antes vivia en el carrito del cliente.
   function PaymentVerificationTab(props){
-    var _query = React.useState(''); var query = _query[0], setQuery = _query[1];
+    var _query = React.useState(props.initialQuery || ''); var query = _query[0], setQuery = _query[1];
     var _quotes = React.useState([]); var quotes = _quotes[0], setQuotes = _quotes[1];
     var _loading = React.useState(true); var loading = _loading[0], setLoading = _loading[1];
     var _err = React.useState(''); var err = _err[0], setErr = _err[1];
@@ -981,6 +992,18 @@
     var list = loadDeliveryConfirmations();
     list.unshift(record);
     try { localStorage.setItem(DELIVERY_LOG_KEY, JSON.stringify(list.slice(0, 200))); } catch (err) { /* storage lleno — se ignora */ }
+  }
+
+  // Cotizaciones "eliminadas" en la pestaña Cotizaciones: mismo caso, el
+  // backend no tiene endpoint de borrado, asi que solo se ocultan aqui.
+  var DISMISSED_QUOTES_KEY = 'f4e_quotes_dismissed_v1';
+  function loadDismissedQuotes(){
+    try { return JSON.parse(localStorage.getItem(DISMISSED_QUOTES_KEY)) || []; } catch (err) { return []; }
+  }
+  function dismissQuote(quoteId){
+    var list = loadDismissedQuotes();
+    if (list.indexOf(quoteId) === -1) list.push(quoteId);
+    try { localStorage.setItem(DISMISSED_QUOTES_KEY, JSON.stringify(list)); } catch (err) {}
   }
 
   // Pedidos ya entregados que se "eliminaron" de la lista de Despachos: el
@@ -1576,13 +1599,19 @@
     var _auth = React.useState(readSavedAuth());
     var auth = _auth[0], setAuth = _auth[1];
     var _tab = React.useState('dashboard'); var tab = _tab[0], setTab = _tab[1];
-    // Cuando se confirma un pedido (pago en efectivo, o cambiando el estado a
-    // "Confirmada" en Cotizaciones), saltamos directo a Despacho y arrancamos
-    // la entrega de ese pedido ahi mismo.
+    // Cuando se registra el pago (efectivo/Wompi) en Cobro, saltamos directo a
+    // Despacho y arrancamos la entrega de ese pedido ahi mismo.
     var _autoStart = React.useState(null); var autoStartQuoteId = _autoStart[0], setAutoStartQuoteId = _autoStart[1];
     function goConfirmAndDispatch(quoteId){
       setAutoStartQuoteId(quoteId);
       setTab('dispatch');
+    }
+    // Cuando solo se marca "Confirmada" en Cotizaciones (todavia no se cobro),
+    // saltamos a Cobro con ese pedido ya buscado, para cobrarlo enseguida.
+    var _autoSearch = React.useState(null); var autoSearchQuoteId = _autoSearch[0], setAutoSearchQuoteId = _autoSearch[1];
+    function goConfirmAndPay(quoteId){
+      setAutoSearchQuoteId(quoteId);
+      setTab('payment');
     }
 
     function onLogin(newToken, newUser){
@@ -1618,8 +1647,8 @@
         ),
         tab === 'dashboard' ? e(DashboardTab, { token:token, isSuperAdmin:isSuperAdmin, onNavigate:setTab }) :
         tab === 'products' ? e(ProductsTab, { token:token }) :
-        tab === 'quotes' ? e(QuotesTab, { token:token, onConfirmed:goConfirmAndDispatch }) :
-        tab === 'payment' ? e(PaymentVerificationTab, { token:token, onConfirmed:goConfirmAndDispatch }) :
+        tab === 'quotes' ? e(QuotesTab, { token:token, onConfirmed:goConfirmAndPay }) :
+        tab === 'payment' ? e(PaymentVerificationTab, { token:token, onConfirmed:goConfirmAndDispatch, initialQuery:autoSearchQuoteId ? String(autoSearchQuoteId) : '' }) :
         tab === 'dispatch' ? e(DispatchAndBodegaTab, {
           token:token, autoStartQuoteId:autoStartQuoteId,
           onConsumedAutoStart:function(){ setAutoStartQuoteId(null); }
