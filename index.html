@@ -270,7 +270,7 @@
   }
   .cat-search input:focus{ outline:none; border-color:var(--accent); }
   .cat-search input::placeholder{ color:var(--ink-muted); }
-  .catalog-empty{ color:var(--ink-muted); padding:2rem 0; text-align:center; }
+  .catalog-empty{ grid-column:1/-1; color:var(--ink-muted); padding:2rem 0; text-align:center; }
 
   .cat-tabs{ display:flex; gap:0.55rem; margin-bottom:1.8rem; flex-wrap:wrap; }
   .cat-tab{
@@ -980,6 +980,7 @@
 
   /* ============================================================ PRODUCT GRID */
   var productGrid = document.getElementById('productGrid');
+  var DEFAULT_GRID_LIMIT = 5;
   function renderGrid(){
     productGrid.innerHTML = '';
     var term = normalizeText(currentSearch.trim());
@@ -992,7 +993,9 @@
       productGrid.innerHTML = '<p class="catalog-empty">Ningún producto coincide con la búsqueda.</p>';
       return;
     }
-    matches.forEach(function(p){
+    var isDefaultView = currentCat === 'todos' && !term;
+    var toRender = isDefaultView ? matches.slice(0, DEFAULT_GRID_LIMIT) : matches;
+    toRender.forEach(function(p){
       var card = document.createElement('div');
       card.className = 'p-card reveal in';
       var catName = (CATEGORIES.find(function(c){ return c.id === p.cat; }) || {}).name || '';
@@ -1014,6 +1017,12 @@
         '</div>';
       productGrid.appendChild(card);
     });
+    if (isDefaultView && matches.length > DEFAULT_GRID_LIMIT){
+      var moreNote = document.createElement('p');
+      moreNote.className = 'catalog-empty';
+      moreNote.textContent = 'Mostrando ' + DEFAULT_GRID_LIMIT + ' de ' + matches.length + ' productos. Usa el buscador o las categorías para ver todo el inventario.';
+      productGrid.appendChild(moreNote);
+    }
   }
   renderGrid();
 
