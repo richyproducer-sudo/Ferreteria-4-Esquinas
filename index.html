@@ -258,6 +258,20 @@
   .sec-head p{ color:var(--ink-soft); margin-top:0.5rem; max-width:56ch; }
 
   /* ---------------- catalog ---------------- */
+  .cat-search{ position:relative; margin-bottom:1.2rem; max-width:420px; }
+  .cat-search svg{
+    position:absolute; left:0.9rem; top:50%; transform:translateY(-50%);
+    width:18px; height:18px; color:var(--ink-muted); pointer-events:none;
+  }
+  .cat-search input{
+    width:100%; background:var(--surface); border:1px solid var(--line); color:var(--ink);
+    padding:0.75rem 1rem 0.75rem 2.6rem; border-radius:10px; font-size:0.92rem; font-family:inherit;
+    transition:border-color 0.2s ease;
+  }
+  .cat-search input:focus{ outline:none; border-color:var(--accent); }
+  .cat-search input::placeholder{ color:var(--ink-muted); }
+  .catalog-empty{ color:var(--ink-muted); padding:2rem 0; text-align:center; }
+
   .cat-tabs{ display:flex; gap:0.55rem; margin-bottom:1.8rem; flex-wrap:wrap; }
   .cat-tab{
     background:var(--surface); border:1px solid var(--line); color:var(--ink-soft); padding:0.5rem 1rem;
@@ -530,6 +544,10 @@
   <div class="wrap">
     <div class="sec-head reveal">
       <div><p class="eyebrow">Inventario</p><h2>Catálogo</h2><p>Precios de referencia — confirma disponibilidad y precio final en tienda o por WhatsApp.</p></div>
+    </div>
+    <div class="cat-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input type="text" id="catSearchInput" placeholder="Buscar producto por nombre…" aria-label="Buscar producto">
     </div>
     <div class="cat-tabs" id="catTabs"></div>
     <div class="product-grid" id="productGrid"></div>
@@ -913,11 +931,28 @@
     filterCatalog(btn.dataset.cat, false);
   });
 
+  var currentCat = 'todos';
+  var currentSearch = '';
+
   function filterCatalog(catId, scroll){
+    currentCat = catId;
     catTabs.querySelectorAll('.cat-tab').forEach(function(t){ t.setAttribute('aria-pressed', t.dataset.cat === catId ? 'true' : 'false'); });
-    renderGrid(catId);
+    renderGrid();
     if (scroll) document.getElementById('catalogo').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
   }
+
+  var ACCENTS_MAP = { 'á':'a','é':'e','í':'i','ó':'o','ú':'u','ñ':'n','ü':'u' };
+  function normalizeText(str){
+    return String(str).toLowerCase().split('').map(function(ch){ return ACCENTS_MAP[ch] || ch; }).join('');
+  }
+
+  var catSearchInput = document.getElementById('catSearchInput');
+  var searchDebounce;
+  catSearchInput.addEventListener('input', function(ev){
+    var value = ev.target.value;
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(function(){ currentSearch = value; renderGrid(); }, 200);
+  });
 
   /* ============================================================ CART STATE (shared store — read by the React cart drawer below) */
   var CART_KEY = 'f4e_cart_v1';
@@ -945,10 +980,19 @@
 
   /* ============================================================ PRODUCT GRID */
   var productGrid = document.getElementById('productGrid');
-  function renderGrid(filter){
-    filter = filter || 'todos';
+  function renderGrid(){
     productGrid.innerHTML = '';
-    PRODUCTS.filter(function(p){ return filter === 'todos' || p.cat === filter; }).forEach(function(p){
+    var term = normalizeText(currentSearch.trim());
+    var matches = PRODUCTS.filter(function(p){
+      var matchesCat = currentCat === 'todos' || p.cat === currentCat;
+      var matchesSearch = !term || normalizeText(p.name).indexOf(term) !== -1;
+      return matchesCat && matchesSearch;
+    });
+    if (matches.length === 0){
+      productGrid.innerHTML = '<p class="catalog-empty">Ningún producto coincide con la búsqueda.</p>';
+      return;
+    }
+    matches.forEach(function(p){
       var card = document.createElement('div');
       card.className = 'p-card reveal in';
       var catName = (CATEGORIES.find(function(c){ return c.id === p.cat; }) || {}).name || '';
@@ -971,7 +1015,7 @@
       productGrid.appendChild(card);
     });
   }
-  renderGrid('todos');
+  renderGrid();
 
   /* ============================================================ LIVE CATALOG (backend, opcional) */
   if (window.API_BASE) {
@@ -988,8 +1032,8 @@
         });
         window.PRODUCTS_BY_ID = {};
         PRODUCTS.forEach(function(p){ window.PRODUCTS_BY_ID[p.id] = p; });
-        renderGrid('todos');
-        catTabs.querySelectorAll('.cat-tab').forEach(function(t){ t.setAttribute('aria-pressed', t.dataset.cat === 'todos' ? 'true' : 'false'); });
+        renderGrid();
+        catTabs.querySelectorAll('.cat-tab').forEach(function(t){ t.setAttribute('aria-pressed', t.dataset.cat === currentCat ? 'true' : 'false'); });
         var elProds = document.getElementById('statProds');
         if (elProds) elProds.textContent = PRODUCTS.length;
       })
