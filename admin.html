@@ -503,7 +503,10 @@
 
     function changeStatus(q, status){
       apiFetch('/api/quotes/' + q.id + '/status', props.token, { method:'PUT', body: JSON.stringify({ status:status }) })
-        .then(load)
+        .then(function(){
+          load();
+          if (status === 'confirmada' && props.onConfirmed) props.onConfirmed(q.id);
+        })
         .catch(function(e){ setErr(e.message); });
     }
 
@@ -577,7 +580,10 @@
     function payInCash(){
       setCashLoading(true);
       apiFetch('/api/quotes/' + q.id + '/status', props.token, { method:'PUT', body: JSON.stringify({ status:'confirmada' }) })
-        .then(props.onChanged)
+        .then(function(){
+          props.onChanged();
+          if (props.onConfirmed) props.onConfirmed(q.id);
+        })
         .catch(function(e){ props.onError(e.message); })
         .finally(function(){ setCashLoading(false); });
     }
@@ -684,7 +690,7 @@
       s === '' ? e('div', { className:'empty' }, 'Escribe un código, teléfono o nombre para buscar un pedido.') :
       matches.length === 0 ? e('div', { className:'empty' }, 'No se encontró ningún pedido que coincida.') :
       matches.map(function(q){
-        return e(QuoteCobroCard, { key:q.id, quote:q, token:props.token, onChanged:load, onError:setErr });
+        return e(QuoteCobroCard, { key:q.id, quote:q, token:props.token, onChanged:load, onError:setErr, onConfirmed:props.onConfirmed });
       })
     );
   }
@@ -1174,6 +1180,22 @@
         .catch(function(e){ setErr(e.message); });
     }
 
+    // Si llegamos aqui porque se acaba de confirmar un pedido en Cotizaciones o
+    // Cobro, arrancamos su entrega automaticamente en cuanto aparezca en esta
+    // lista (misma señal de chulo verde + pitido que al escanear).
+    var autoStartHandledRef = React.useRef(null);
+    React.useEffect(function(){
+      if (!props.autoStartQuoteId || loading) return;
+      if (autoStartHandledRef.current === props.autoStartQuoteId) return;
+      var q = quotes.find(function(x){ return x.id === props.autoStartQuoteId; });
+      if (!q) { props.onConsumedAutoStart(); return; }
+      autoStartHandledRef.current = props.autoStartQuoteId;
+      if (q.dispatch_status === 'pendiente' || q.dispatch_status === 'preparando') {
+        setFeedback({ message: 'Iniciando entrega para ' + q.customer_name, next: function(){ startDelivery(q); } });
+      }
+      props.onConsumedAutoStart();
+    }, [props.autoStartQuoteId, loading, quotes]);
+
     function handleScanned(text){
       setScannerOpen(false);
       var id = parseOrderCode(text);
@@ -1373,6 +1395,11 @@
 
   function DispatchAndBodegaTab(props){
     var _sub = React.useState('despacho'); var sub = _sub[0], setSub = _sub[1];
+    // Si venimos de confirmar un pedido en otra pestaña, asegura que se vea la
+    // vista de Despachos (donde arranca la entrega automaticamente).
+    React.useEffect(function(){
+      if (props.autoStartQuoteId) setSub('despacho');
+    }, [props.autoStartQuoteId]);
     return e('div', null,
       e('h2', { style:{ fontSize:'1.15rem', marginBottom:'1rem' } }, 'Despacho y Bodega'),
       e('div', { className:'subtabs' },
@@ -1380,7 +1407,9 @@
         e('button', { className:'subtab-btn' + (sub === 'entregas' ? ' active' : ''), onClick:function(){ setSub('entregas'); } }, 'Entrega Confirmada'),
         e('button', { className:'subtab-btn' + (sub === 'bodega' ? ' active' : ''), onClick:function(){ setSub('bodega'); } }, 'Inventario / Bodega')
       ),
-      sub === 'despacho' ? e(DespachosView, { token:props.token }) :
+      sub === 'despacho' ? e(DespachosView, {
+        token:props.token, autoStartQuoteId:props.autoStartQuoteId, onConsumedAutoStart:props.onConsumedAutoStart
+      }) :
       sub === 'entregas' ? e(EntregaConfirmadaView, null) :
       e(BodegaView, { token:props.token })
     );
@@ -1400,6 +1429,14 @@
     var _auth = React.useState(readSavedAuth());
     var auth = _auth[0], setAuth = _auth[1];
     var _tab = React.useState('dashboard'); var tab = _tab[0], setTab = _tab[1];
+    // Cuando se confirma un pedido (pago en efectivo, o cambiando el estado a
+    // "Confirmada" en Cotizaciones), saltamos directo a Despacho y arrancamos
+    // la entrega de ese pedido ahi mismo.
+    var _autoStart = React.useState(null); var autoStartQuoteId = _autoStart[0], setAutoStartQuoteId = _autoStart[1];
+    function goConfirmAndDispatch(quoteId){
+      setAutoStartQuoteId(quoteId);
+      setTab('dispatch');
+    }
 
     function onLogin(newToken, newUser){
       var record = { token: newToken, user: newUser };
@@ -1434,9 +1471,12 @@
         ),
         tab === 'dashboard' ? e(DashboardTab, { token:token, isSuperAdmin:isSuperAdmin, onNavigate:setTab }) :
         tab === 'products' ? e(ProductsTab, { token:token }) :
-        tab === 'quotes' ? e(QuotesTab, { token:token }) :
-        tab === 'payment' ? e(PaymentVerificationTab, { token:token }) :
-        tab === 'dispatch' ? e(DispatchAndBodegaTab, { token:token }) :
+        tab === 'quotes' ? e(QuotesTab, { token:token, onConfirmed:goConfirmAndDispatch }) :
+        tab === 'payment' ? e(PaymentVerificationTab, { token:token, onConfirmed:goConfirmAndDispatch }) :
+        tab === 'dispatch' ? e(DispatchAndBodegaTab, {
+          token:token, autoStartQuoteId:autoStartQuoteId,
+          onConsumedAutoStart:function(){ setAutoStartQuoteId(null); }
+        }) :
         (tab === 'staff' && isSuperAdmin) ? e(StaffTab, { token:token, currentUserId: user.id }) : null
       )
     );
