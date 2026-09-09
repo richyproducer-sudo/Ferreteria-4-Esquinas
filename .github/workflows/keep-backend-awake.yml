@@ -1,0 +1,16 @@
+name: Keep backend awake
+
+# El backend (Render, plan gratuito) se "duerme" tras un rato sin trafico y la
+# primera peticion despues de eso tarda varios segundos en responder. Este
+# workflow lo visita cada 10 minutos para que se mantenga despierto.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend
+        run: curl -sf -o /dev/null -m 30 "https://ferreteria-4-esquinas-backend.onrender.com/api/products" || echo "El backend no respondio a tiempo (puede estar despertando); no es un error del workflow."
