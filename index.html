@@ -774,6 +774,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 (function(){
@@ -1482,6 +1483,25 @@
     return lines.join('\n');
   }
 
+  // Genera un QR como imagen (dataURL) para poder incrustarlo en el PDF con
+  // doc.addImage. Usa la misma libreria (qrcodejs) que ya genera el QR de
+  // "Despacho y Bodega" en el panel de admin, dibujandolo en un div oculto.
+  function qrCodeDataURL(text, size){
+    if (!text || !window.QRCode) return null;
+    var holder = document.createElement('div');
+    holder.style.position = 'fixed'; holder.style.left = '-9999px'; holder.style.top = '-9999px';
+    document.body.appendChild(holder);
+    try {
+      new QRCode(holder, { text: text, width: size || 220, height: size || 220, correctLevel: QRCode.CorrectLevel.M });
+      var canvas = holder.querySelector('canvas');
+      return canvas ? canvas.toDataURL('image/png') : null;
+    } catch (err) {
+      return null;
+    } finally {
+      document.body.removeChild(holder);
+    }
+  }
+
   // Codigo de seguridad aleatorio (no adivinable), distinto del numero de pedido
   // secuencial F4E-XXXXXX. Evita caracteres ambiguos (0/O, 1/I/L).
   function randomSecurityCode(){
@@ -1584,12 +1604,16 @@
   }
 
   // Factura POS estilo ticket, con el codigo de seguridad aleatorio destacado para
-  // que el repartidor (o el personal en tienda) confirme y entregue el producto.
+  // que el repartidor (o el personal en tienda) confirme y entregue el producto,
+  // mas un QR (formato "F4E-Q-<id>") que el escaner de "Despacho y Bodega" en el
+  // panel de admin ya sabe leer, para sincronizar la factura con esa pantalla.
   // "orderRef" es el numero de pedido F4E-XXXXXX (buscable en el panel de admin);
-  // "securityCode" es el codigo aleatorio vinculado a esta misma factura.
-  function buildFacturaPOSPDF(cart, name, phone, orderRef, securityCode){
+  // "securityCode" es el codigo aleatorio vinculado a esta misma factura;
+  // "qrText" es el texto a codificar en el QR (null si no hay pedido real en el backend).
+  function buildFacturaPOSPDF(cart, name, phone, orderRef, securityCode, qrText){
     var items = Object.keys(cart).filter(function(id){ return cart[id] > 0; });
-    var estHeight = 100 + items.length * 7;
+    var qrImg = qrCodeDataURL(qrText, 200);
+    var estHeight = 100 + items.length * 7 + (qrImg ? 40 : 0);
     var doc = new window.jspdf.jsPDF({ unit: 'mm', format: [80, Math.max(150, estHeight)] });
     var w = doc.internal.pageSize.getWidth();
     var marginX = 5;
@@ -1652,6 +1676,15 @@
     doc.setFontSize(7);
     var foot = doc.splitTextToSize('Presenta este código para reclamar tu pedido en el punto físico o entregarlo al repartidor.', w - marginX * 2);
     doc.text(foot, w / 2, y, { align: 'center' });
+    y += foot.length * 3.2 + 4;
+
+    if (qrImg) {
+      var qrSize = 28;
+      doc.addImage(qrImg, 'PNG', (w - qrSize) / 2, y, qrSize, qrSize);
+      y += qrSize + 4;
+      doc.setFontSize(6.5);
+      doc.text('Escanéalo en Despacho y Bodega para sincronizar el pedido', w / 2, y, { align: 'center' });
+    }
 
     return doc;
   }
@@ -1752,11 +1785,13 @@
     var orderRefState = React.useState(null);
     var orderRef = orderRefState[0], setOrderRef = orderRefState[1];
 
-    // Devuelve una promesa con { securityCode, orderRef }, generando el codigo
-    // aleatorio una sola vez, para que el bloque en pantalla y la Factura POS
-    // siempre muestren el mismo par de codigos para este pedido.
+    // Devuelve una promesa con { securityCode, orderRef, quoteId }, generando el
+    // codigo aleatorio una sola vez, para que el bloque en pantalla y la Factura
+    // POS siempre muestren el mismo par de codigos para este pedido. "quoteId" es
+    // el id numerico crudo (o null sin backend) — se usa para armar el QR en el
+    // mismo formato "F4E-Q-<id>" que ya lee el escaner de Despacho y Bodega.
     function ensureSecurityCode(){
-      if (secCode) return Promise.resolve({ securityCode: secCode, orderRef: orderRef });
+      if (secCode) return Promise.resolve({ securityCode: secCode, orderRef: orderRef, quoteId: quoteIdRef.current });
       setSecStatus('loading');
       var code = randomSecurityCode();
       return ensureQuoteSaved().then(function(quoteId){
@@ -1764,7 +1799,7 @@
         setSecCode(code);
         setOrderRef(ref);
         setSecStatus('ready');
-        return { securityCode: code, orderRef: ref };
+        return { securityCode: code, orderRef: ref, quoteId: quoteId };
       }).catch(function(){ setSecStatus('error'); return null; });
     }
 
@@ -1781,7 +1816,12 @@
       setPosStatus('loading');
       ensureSecurityCode().then(function(result){
         if (!result) { setPosStatus('error'); return; }
-        var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), result.orderRef, result.securityCode);
+        // Mismo formato "F4E-Q-<id>" que ya genera y lee el escaner de Despacho y
+        // Bodega en el panel de admin — asi el QR de esta factura sincroniza
+        // directo con esa pantalla sin tocar nada mas. Sin backend (catalogo local
+        // o sin conexion) no hay id real que escanear, asi que se omite el QR.
+        var qrText = result.quoteId ? ('F4E-Q-' + result.quoteId) : null;
+        var doc = buildFacturaPOSPDF(cart, name.trim(), phone.trim(), result.orderRef, result.securityCode, qrText);
         doc.save('factura-pos-' + result.securityCode + '.pdf');
         setPosStatus('idle');
       }).catch(function(){ setPosStatus('error'); });
